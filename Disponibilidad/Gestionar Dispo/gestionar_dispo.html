@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; background: #f8fafc; padding: 16px; color: #1e293b; }
+    .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-width: 650px; margin: 0 auto; }
+    h3 { margin-top: 0; margin-bottom: 5px; color: #000; font-size: 16px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
+    
+    /* Contenedor de mensajes de estado */
+    #status { margin-bottom: 10px; text-align: center; font-size: 13px; font-weight: 600; min-height: 20px; line-height: 1.5; }
+    
+    .grid-container { overflow-x: auto; margin-top: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
+    table { width: 100%; border-collapse: collapse; min-width: 500px; }
+    th { background: #f1f5f9; color: #64748b; font-size: 10px; text-transform: uppercase; padding: 12px; border: 1px solid #e2e8f0; }
+    td { border: 1px solid #e2e8f0; text-align: center; padding: 0; height: 45px; }
+    
+    .slot-check { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s; }
+    .slot-check:hover { background: #f0fdf4; }
+    .slot-check input { cursor: pointer; transform: scale(1.3); accent-color: #16B378; }
+    
+    .hora-label { font-size: 12px; font-weight: 700; background: #f8fafc; color: #475569; width: 90px; }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+    }
+
+    .btn-save { 
+      display: block; width: 100%; padding: 12px; 
+      background: #16B378; color: white; border: none; border-radius: 8px; 
+      font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(22, 179, 120, 0.2);
+    }
+    .btn-save:hover { background: #129664; transform: translateY(-1px); }
+    .btn-save:active { transform: translateY(0); }
+    .btn-save:disabled { background: #cbd5e1; cursor: not-allowed; box-shadow: none; }
+
+    .btn-delete {
+      display: block; width: 100%; padding: 12px; 
+      background: #ef4444; color: white; border: none; border-radius: 8px; 
+      font-weight: 700; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-delete:hover { background: #dc2626; transform: translateY(-1px); }
+    .btn-delete:active { transform: translateY(0); }
+    .btn-delete:disabled { background: #cbd5e1; cursor: not-allowed; }
+    
+    .success { color: #16B378; }
+    .error { color: #ef4444; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h3>Gestionar Disponibilidad</h3>
+
+  <div id="status"></div>
+
+  <div class="button-group">
+    <button id="saveBtn" class="btn-save">💾 GUARDAR DISPONIBILIDAD</button>
+    <button id="deleteBtn" class="btn-delete">🗑️ ELIMINAR DISPONIBILIDAD</button>
+  </div>
+
+  <div class="grid-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Hora</th>
+          <th>Lun</th><th>Mar</th><th>Mié</th><th>Jue</th><th>Vie</th>
+        </tr>
+      </thead>
+      <tbody id="gridBody">
+          </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
