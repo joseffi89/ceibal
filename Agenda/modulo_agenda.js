@@ -325,6 +325,24 @@ function validarRecuperacion() {
   else if (yaRecuperada) { msg = 'Esta clase ya fue recuperada.'; err = true; }
   else if (!tieneCupo) { msg = 'No hay clases a recuperar.'; err = true; }
 
+  // --- NUEVA LÓGICA: Restricción de mismo día ---
+  const inputFecha = document.getElementById('nuevaFecha').value;
+  if (!err && inputFecha) {
+    const fechaSeleccionada = new Date(inputFecha);
+    const fechaOriginal = new Date(typeof recordClase.Clase === 'number' ? recordClase.Clase * 1000 : recordClase.Clase);
+
+    // Comparamos Año, Mes y Día (usando UTC para evitar desfases de zona horaria en Grist)
+    const esMismoDia = fechaSeleccionada.getUTCFullYear() === fechaOriginal.getUTCFullYear() &&
+                       fechaSeleccionada.getUTCMonth() === fechaOriginal.getUTCMonth() &&
+                       fechaSeleccionada.getUTCDate() === fechaOriginal.getUTCDate();
+
+    if (esMismoDia) {
+      msg = 'No podés reprogramar la clase para el mismo día que la original.';
+      err = true;
+    }
+  }
+  // ----------------------------------------------
+
   const div = document.getElementById('errorCupo');
   div.style.display = err ? 'block' : 'none'; div.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${msg}`;
   document.getElementById('nuevaFecha').disabled = err;
