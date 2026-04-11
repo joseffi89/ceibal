@@ -343,9 +343,17 @@ document.getElementById('btnGenerar').onclick = async () => {
     const fNueva = new Date(ts * 1000).toLocaleDateString('es-ES');
 
     await grist.docApi.applyUserActions([
-      ["AddRecord", "Agenda", null, { ID_Grupo: idGrupoRec, Clase: ts, Hora_Desde: raw[1], Tipo_de_Clase: "Recuperación", Recuperacion: `Clase original ${fOrig}` }],
-      ["UpdateRecord", "Agenda", recordClase.id, { Recuperacion: `Clase a recuperar el ${fNueva}` }]
+      [ "AddRecord",  "Agenda", null, { 
+          ID_Grupo: idGrupoRec, 
+          Clase: ts, 
+          Hora_Desde: raw[1], 
+          Tipo_de_Clase:  "Recuperación", 
+          Recuperacion: `Clase original ${fOrig}`,
+          Estado_Clase_Original_ID: Number(recordClase.Estado_Clase_ID) // 👈 NUEVO
+      }],
+      [ "UpdateRecord",  "Agenda", recordClase.id, { Recuperacion: `Clase a recuperar el ${fNueva}` }]
     ]);
+
     cerrarModal('modalRecuperacion');
     document.getElementById('nuevaFecha').value = "";
     btn.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> Generar Clase';
@@ -389,6 +397,24 @@ function prepararModalInforme() {
     }, 50);
   } else { sel.value = ""; document.getElementById('dynamicForm').innerHTML = ''; }
   sel.disabled = estaBloqueado;
+
+    // === NUEVA LÓGICA: Restringir estados 6 y 7 para recuperaciones ===
+  const esRecuperada = recordClase?.Tipo_de_Clase === "Recuperación";
+  // Fallback por si es un registro viejo sin la columna nueva
+  const estadoOriginal = recordClase?.Estado_Clase_Original_ID || recordClase?.Estado_Clase_ID; 
+  const aplicaRestriccion = esRecuperada && [6, 7].includes(Number(estadoOriginal));
+
+  for (let i = 0; i < sel.options.length; i++) {
+      const opt = sel.options[i];
+      const val = Number(opt.value);
+      if (aplicaRestriccion && [6, 7].includes(val)) {
+          opt.disabled = true;
+          if (!opt.text.includes('(No permitido)')) opt.text += ' (No permitido)';
+      } else {
+          opt.disabled = false;
+          opt.text = opt.text.replace(' (No permitido)', '');
+      }
+  }
 }
 
 document.getElementById('estadoSelect').onchange = function() {
@@ -446,6 +472,19 @@ function validarBoton() {
   const st = document.getElementById('estadoSelect').value;
   const esProhibido = (st === "1" && esFechaFutura && !informeExistente);
   document.getElementById('futureWarning').style.display = esProhibido ? 'block' : 'none';
+
+  // === VALIDACIÓN DE SEGURIDAD: Bloquear envío si se bypassea la UI ===
+  const esRec = recordClase?.Tipo_de_Clase === "Recuperación";
+  const estOrig = recordClase?.Estado_Clase_Original_ID || recordClase?.Estado_Clase_ID;
+  const estadoSeleccionado = Number(st);
+
+  if (esRec && [6, 7].includes(Number(estOrig)) && [6, 7].includes(estadoSeleccionado)) {
+      const warnDiv = document.getElementById('futureWarning');
+      warnDiv.style.display = 'block';
+      warnDiv.innerHTML = '⚠️ <b>Restricción:</b> No se puede cancelar con este motivo una clase recuperada de una cancelación sin anticipación o por factores externos.';
+      document.getElementById('btnEnviar').disabled = true;
+      return;
+  }
   const estaBloqueado = informeExistente && informeExistente.Estado_Edicion === "BLOQUEADO";
 
   if (!st || esProhibido || estaBloqueado) { 
