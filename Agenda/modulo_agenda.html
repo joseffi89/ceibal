@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+
+  <style>
+    /* Variables globales de diseño */
+    :root {
+      --grist-green: #16B378;
+      --grist-red: #ef4444;
+      --bg-app: #f1f5f9;
+      --border-color: #e2e8f0;
+      --sidebar-width: 350px; 
+    }
+
+    body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: var(--bg-app); height: 100vh; overflow: hidden; }
+    
+    .main-layout { 
+      display: flex; 
+      height: 100vh; 
+      flex-direction: row;
+    }
+
+    /* Estilos del Panel Lateral Izquierdo */
+    .sidebar-detail { 
+      width: var(--sidebar-width);
+      min-width: 300px;
+      background: white; 
+      border-right: 1px solid var(--border-color); 
+      padding: 24px; 
+      display: flex; 
+      flex-direction: column; 
+      z-index: 10;
+      box-sizing: border-box; 
+      overflow-y: auto;
+    }
+    .sidebar-header { border-bottom: 2px solid #f8fafc; padding-bottom: 20px; margin-bottom: 24px; }
+    .sidebar-header h3 { margin: 0; font-size: 1.25rem; color: #1e293b; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+
+    /* Tarjeta de detalles de la clase */
+    .class-detail-card { 
+      background: #f8fafc; padding: 20px; border-radius: 16px; border-left: 6px solid var(--state-color, #cbd5e1);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 20px;
+    }
+    .data-group { margin-bottom: 14px; } 
+    .label { font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; display: block; letter-spacing: 0.06em; margin-bottom: 4px; }
+    .val { font-size: 0.95rem; font-weight: 600; color: #334155; line-height: 1.4; }
+    .val-estado { color: var(--state-color); font-weight: 700; }
+    .val-rec-info { font-size: 0.8rem; color: #64748b; margin-top: 4px; font-style: italic; display: block; }
+
+    /* Botones de acción */
+    .actions-menu { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding-top: 20px; }
+    .btn-action {
+      width: 100%; padding: 14px; background: var(--grist-green); color: white; border: none; border-radius: 12px;
+      font-weight: 700; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.2s;
+    }
+    .btn-action:hover { background: #129664; transform: translateY(-1px); }
+    .btn-action:disabled { background: #cbd5e1; cursor: not-allowed; transform: none; }
+    .btn-secondary { background: #334155; }
+    .btn-edit { background: #2563eb; }
+
+    /* Contenedor del Calendario */
+    .calendar-wrapper { 
+      flex-grow: 1;
+      padding: 15px; 
+      overflow: hidden; 
+      display: flex; 
+      flex-direction: column; 
+      min-width: 0;
+    }
+
+    #calendar { 
+      background: white; 
+      border-radius: 16px; 
+      padding: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
+      height: 100%; 
+      font-size: 0.9rem;
+    }
+    
+    .fc-event { cursor: pointer !important; border: none !important; }
+    .fc-timegrid-event { 
+      background-color: var(--event-bg, #e2e8f0) !important; 
+      border-left: 4px solid var(--event-color, #94a3b8) !important;
+      border-radius: 4px !important;
+    }
+    .fc-event-main { color: #1e293b !important; padding: 2px !important; font-weight: 600 !important; }
+
+    .fc-daygrid-event {
+      white-space: normal !important;
+      background-color: var(--event-bg, #e2e8f0) !important;
+      border-left: 3px solid var(--event-color, #94a3b8) !important;
+      margin-bottom: 2px !important;
+    }
+    .event-title-wrap { font-size: 0.75rem; display: flex; flex-direction: column; position: relative; }
+    .event-time-tag { font-weight: 800; font-size: 0.7rem; color: #64748b; }
+    
+    .badge-recuperada {
+      display: inline-block;
+      background: #334155;
+      color: white;
+      font-size: 0.6rem;
+      padding: 1px 4px;
+      border-radius: 4px;
+      margin-top: 2px;
+      width: fit-content;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    /* Modales y Superposiciones */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(4px);
+      display: none; justify-content: center; align-items: center; z-index: 1000;
+    }
+    .modal-content {
+      background: white; 
+      width: 95%;
+      max-width: 550px; 
+      max-height: 90vh;
+      border-radius: 20px; 
+      padding: 20px; 
+      overflow-y: auto;
+    }
+
+    /* Estilos del Historial (Fichas) */
+    .header-historial { border-bottom: 3px solid #16B378; padding-bottom: 12px; margin-bottom: 20px; }
+    .header-historial h3 { margin: 0; font-size: 18px; color: #16B378; text-transform: uppercase; letter-spacing: 0.5px; }
+    .ficha { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 16px; overflow: hidden; text-align: left; }
+    .ficha-header { background: #f8fafc; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .ficha-titulo { font-size: 13px; font-weight: 800; color: #1e293b; }
+    .ficha-sub { font-size: 13px; color: #475569; font-weight: 700; margin-top: 2px; }
+    .ficha-body { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .campo-ficha { display: flex; flex-direction: column; }
+    .label-ficha { font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; }
+    .valor-ficha { font-size: 12px; color: #334155; line-height: 1.4; font-weight: 500; }
+    .valor-ficha a { color: #16B378; text-decoration: none; font-weight: 800; }
+    .badge-hist { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; white-space: nowrap; }
+    .st-dictada { background-color: #dcfce7 !important; color: #16B378 !important; }
+    .st-rojo { background-color: #fee2e2 !important; color: #b91c1c !important; }
+    .st-default { background-color: #f1f5f9 !important; color: #475569 !important; }
+    .full-width { grid-column: 1 / span 2; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid #f1f5f9; }
+
+    /* Formularios */
+    .form-group { margin-bottom: 15px; display: flex; flex-direction: column; }
+    .form-group.hidden { display: none; }
+    input, select, textarea { padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; }
+    .req { color: var(--grist-red); }
+    .warning-box { background: #fee2e2; color: #b91c1c; padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 13px; font-weight: 700; border: 1px solid #f87171; }
+    .stats-container { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+    .stat-box { background: #fff; border: 1px solid #e2e8f0; padding: 10px; border-radius: 8px; text-align: center; }
+    .stat-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; display: block; }
+    .stat-value { font-size: 22px; font-weight: 800; color: #2c3e50; }
+    .error-msg { color: #e11d48; font-size: 12px; font-weight: 600; margin-top: 8px; display: none; text-align: center; padding: 8px; background: #fff1f2; border-radius: 6px; }
+    .helper-text { font-size: 11px; color: #64748b; margin-top: 4px; margin-bottom: 8px; line-height: 1.4; background: #f1f5f9; padding: 8px; border-radius: 6px; border-left: 3px solid #16B378; }
+    .helper-text a { color: #16B378; font-weight: 700; text-decoration: none; }
+
+    /* Panel informativo en modales */
+    .clase-info-panel {
+      background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px;
+      margin-bottom: 20px; display: grid; grid-template-columns: 1.7fr 1.7fr 0.8fr; gap: 16px; align-items: center;
+    }
+    .clase-info-item { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .clase-info-value {
+      font-size: 0.9rem; font-weight: 600; color: #1e293b; display: flex; align-items: center; gap: 6px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .clase-info-value i { color: #64748b; font-size: 0.9rem; flex-shrink: 0; }
+
+    /* Adaptabilidad Móvil */
+    @media (max-width: 1024px) {
+      :root { --sidebar-width: 280px; }
+      .sidebar-detail { padding: 15px; }
+      .val { font-size: 0.85rem; }
+    }
+
+    @media (max-width: 768px) {
+      .main-layout { flex-direction: column; overflow-y: auto; }
+      .sidebar-detail { width: 100%; border-right: none; border-bottom: 1px solid var(--border-color); height: auto; max-height: 40vh; }
+      .calendar-wrapper { height: 60vh; padding: 10px; }
+      #calendar { font-size: 0.75rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="main-layout">
+  <div class="sidebar-detail">
+    <div class="sidebar-header">
+      <h3><i class="fa-solid fa-calendar-check" style="color: var(--grist-green)"></i> Gestión de Clase</h3>
+    </div>
+    <div id="detailContent">
+       <div style="text-align: center; color: #94a3b8; margin-top: 40px;">
+         <i class="fa-regular fa-hand-pointer fa-3x" style="margin-bottom: 15px; display: block; opacity: 0.5;"></i>
+         <p>Seleccioná una clase en el calendario.</p>
+       </div>
+    </div>
+    <div class="actions-menu" id="actionsArea" style="display:none;">
+      <button class="btn-action" id="btnAbrirInforme">
+        <i class="fa-solid fa-clipboard-check"></i>
+        <span id="txtBtnInforme">Informar Clase</span>
+      </button>
+      <button class="btn-action btn-secondary" id="btnAbrirRecuperacion">
+        <i class="fa-solid fa-arrows-rotate"></i>
+        Recuperar Clase
+      </button>
+    </div>
+  </div>
+  <div class="calendar-wrapper"><div id="calendar"></div></div>
+</div>
+
+<div class="modal-overlay" id="modalInforme">
+  <div class="modal-content">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h3 id="modalTitle" style="margin:0; color:var(--grist-green); display: flex; align-items: center; gap: 10px;">
+        <i class="fa-solid fa-pen-to-square"></i> Informe de Clase
+      </h3>
+      <button onclick="cerrarModal('modalInforme')" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8">&times;</button>
+    </div>
+    
+    <div class="clase-info-panel" id="claseInfoPanel" style="display: none;">
+      <div class="clase-info-item"><span class="clase-info-value" id="infoGrupo">---</span></div>
+      <div class="clase-info-item"><span class="clase-info-value" id="infoFecha">---</span></div>
+      <div class="clase-info-item"><span class="clase-info-value" id="infoHora">---</span></div>
+    </div>
+    
+    <div id="futureWarning" class="warning-box" style="display: none;"><i class="fa-solid fa-hourglass-half"></i> No se puede marcar como "Dictada" una clase futura.</div>
+    <div id="lockedWarning" class="warning-box" style="display: none;"><i class="fa-solid fa-lock"></i> Este informe no puede ser editado.</div>
+    
+    <div class="form-group">
+      <label>Estado de la Clase <span class="req">*</span></label>
+      <select id="estadoSelect"><option value="">Cargando estados...</option></select>
+    </div>
+    <div id="dynamicForm"></div>
+    <button id="btnEnviar" class="btn-action" style="margin-top:20px" disabled><i class="fa-solid fa-cloud-arrow-up"></i> Enviar Informe</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalRecuperacion">
+  <div class="modal-content">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h3 style="margin:0; color:var(--grist-green); display: flex; align-items: center; gap: 10px;"><i class="fa-solid fa-arrows-rotate"></i> Recuperación de Clase</h3>
+      <button onclick="cerrarModal('modalRecuperacion')" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8">&times;</button>
+    </div>
+    <div class="info-clase-rec">Grupo: <b id="lblGrupo">Cargando...</b></div>
+    <div class="stats-container">
+      <div class="stat-box"><span class="stat-label">Canceladas</span><span id="txtCanceladas" class="stat-value">0</span></div>
+      <div class="stat-box"><span class="stat-label">Recuperadas</span><span id="txtRecuperadas" class="stat-value">0</span></div>
+    </div>
+    <div class="form-group">
+      <label>Nueva Fecha y Hora</label>
+      <input type="datetime-local" id="nuevaFecha">
+      <div id="errorCupo" class="error-msg"></div>
+    </div>
+    <button id="btnGenerar" class="btn-action" disabled><i class="fa-solid fa-calendar-plus"></i> Generar Clase</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalHistorial">
+  <div class="modal-content" style="max-width: 650px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+       <div class="header-historial">
+          <h3>Historial de Clases</h3>
+          <div style="font-size: 14px; font-weight: 600; color: #64748b; margin-top: 4px;" id="grupoHistorialLabel">Cargando...</div>
+       </div>
+       <button onclick="cerrarModal('modalHistorial')" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8; align-self: flex-start;">&times;</button>
+    </div>
+    <div id="historialContenido"></div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
