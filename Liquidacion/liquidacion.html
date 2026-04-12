@@ -1,0 +1,212 @@
+<html>
+<head>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+<style>
+    :root {
+      --grist-green: #16B378;
+      --grist-blue: #2563eb;
+      --grist-light: #f0fbf7;
+      --status-pending: #f59e0b;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; height: 100vh; margin: 0; background-color: #f8f9fa; color: #333;
+    }
+    #sidebar {
+      width: 220px; background: #ffffff; border-right: 1px solid #ddd;
+      overflow-y: auto; display: flex; flex-direction: column;
+    }
+    .sidebar-header {
+      padding: 15px; font-weight: bold; font-size: 0.8rem;
+      text-transform: uppercase; color: #888; border-bottom: 1px solid #eee;
+    }
+    .period-item {
+      padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
+      transition: all 0.2s; font-size: 0.9rem; display: flex; flex-direction: column; gap: 4px;
+    }
+    .period-item:hover { background-color: var(--grist-light); }
+    .period-item.active {
+      background-color: var(--grist-light); color: var(--grist-green); font-weight: bold;
+      border-right: 4px solid var(--grist-green);
+    }
+    .period-badge {
+      font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+    }
+    
+    #main-content { flex-grow: 1; padding: 30px; overflow-y: auto; }
+    
+    .card {
+      background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      padding: 30px; max-width: 850px; margin: 0 auto;
+    }
+
+    .action-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #f8fafc; padding: 15px 25px; border-radius: 12px 12px 0 0;
+      border: 1px solid #e2e8f0; border-bottom: none; margin: 0 auto; max-width: 850px;
+    }
+    .current-status { display: flex; flex-direction: column; }
+    .status-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; }
+    .status-value { font-size: 1rem; font-weight: 700; color: #1e293b; }
+
+    .buttons-group { display: flex; gap: 12px; }
+    .btn-circle {
+      width: 40px; height: 40px; border-radius: 50%; border: none;
+      display: flex; align-items: center; justify-content: center;
+      color: white; cursor: pointer; transition: transform 0.2s; font-size: 1.1rem;
+    }
+    .btn-confirm { background-color: var(--grist-green); }
+    .btn-suggest { background-color: var(--grist-blue); }
+    .btn-circle:hover { transform: scale(1.1); }
+
+    .liq-header {
+      display: flex; justify-content: space-between;
+      margin-bottom: 25px; padding-bottom: 20px; border-bottom: 2px solid #f0f0f0;
+    }
+    .company-data { line-height: 1.6; }
+    .company-name { font-size: 1.4rem; font-weight: bold; color: #1a1a1a; margin-bottom: 5px; }
+    .company-detail { font-size: 0.85rem; color: #666; }
+    
+    .period-summary { text-align: right; }
+    .period-label { font-size: 0.75rem; text-transform: uppercase; color: #888; letter-spacing: 0.5px; }
+    .period-value { font-size: 1.5rem; font-weight: bold; color: var(--grist-green); margin-top: 3px; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th {
+      text-align: left; padding: 12px; background: #fdfdfd;
+      border-bottom: 2px solid #eee; color: #888; font-size: 0.75rem; text-transform: uppercase;
+    }
+    td { padding: 14px 12px; border-bottom: 1px solid #eee; font-size: 0.95rem; }
+    .total-row { font-weight: bold; background-color: var(--grist-light); font-size: 1.1rem; color: var(--grist-green); }
+    .currency { text-align: right; font-variant-numeric: tabular-nums; }
+    .qty { text-align: center; color: #666; }
+
+    .view-detail-btn {
+      display: inline-flex; align-items: center; cursor: pointer; color: var(--grist-green);
+      margin-left: 8px; vertical-align: middle; transition: opacity 0.2s;
+    }
+
+    #modal-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;
+    }
+    .modal-content {
+      background: white; border-radius: 12px; width: 90%; max-width: 750px;
+      max-height: 80vh; overflow-y: auto; padding: 25px; position: relative;
+    }
+    .close-modal { position: absolute; top: 15px; right: 20px; font-size: 1.5rem; cursor: pointer; color: #888; }
+    .modal-title { color: var(--grist-green); margin-bottom: 20px; border-bottom: 2px solid var(--grist-light); padding-bottom: 10px; }
+    
+    .billing-notice {
+      margin-top: 25px; padding: 15px; background-color: #f9f9f9; border-left: 4px solid var(--grist-green);
+      font-size: 0.9rem; color: #555; line-height: 1.5;
+    }
+
+    .billing-banner {
+      background: linear-gradient(135deg, #f0fbf7 0%, #e0f7f0 100%);
+      border-left: 4px solid var(--grist-green);
+      padding: 16px 20px;
+      margin: 0 auto 20px auto;
+      max-width: 850px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      box-shadow: 0 2px 8px rgba(22, 179, 120, 0.15);
+      animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .billing-banner-icon {
+      color: var(--grist-green);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      background: white;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .billing-banner-content { flex: 1; }
+    .billing-banner-text { color: #475569; font-size: 0.95rem; line-height: 1.5; }
+    .billing-email {
+      color: var(--grist-blue);
+      font-weight: 600;
+      text-decoration: none;
+      border-bottom: 1px dashed var(--grist-blue);
+      transition: all 0.2s;
+    }
+    .billing-email:hover {
+      color: var(--grist-green);
+      border-bottom-color: var(--grist-green);
+      background: rgba(22, 179, 120, 0.1);
+      border-radius: 3px;
+      padding: 0 4px;
+    }
+
+    @media (max-width: 768px) {
+      .billing-banner { flex-direction: column; padding: 14px 16px; }
+      .billing-banner-icon { width: 36px; height: 36px; }
+    }
+    .empty-state { text-align: center; color: #999; margin-top: 80px; width: 100%; }
+    #obs-container { margin-bottom: 20px; display: none; max-width: 850px; margin-left: auto; margin-right: auto;}
+    textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; resize: vertical; box-sizing: border-box;}
+    .dr-badge {
+      display: inline-block;
+      background: #f5f5f5;
+      color: #696868;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-top: 5px;
+    }
+    
+    .coord-validation {
+      font-size: 0.85rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+    .coord-validation.validada {
+      background: var(--grist-light);
+      color: var(--grist-green);
+    }
+    .coord-validation.no-validada {
+      background: #fef3c7;
+      color: #d97706;
+    }
+</style>
+</head>
+<body>
+  <div id="sidebar">
+    <div class="sidebar-header">Liquidaciones</div>
+    <div id="period-list"></div>
+  </div>
+
+  <div id="main-content">
+    <div id="detail-view" class="empty-state">
+      <h3>Seleccione un período</h3>
+      <p>Visualización de liquidaciones por período.</p>
+    </div>
+  </div>
+
+  <div id="modal-overlay">
+    <div class="modal-content">
+      <span class="close-modal" onclick="closeModal()">&times;</span>
+      <h3 class="modal-title" id="modal-title-text">Detalle de Clases</h3>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+<script src="liquidacion.js"></script>  
+</body>
+</html>
