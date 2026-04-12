@@ -132,25 +132,13 @@ async function handleAction(type) {
   
   const idLiq = buildIDLiq(selectedPeriod, currentDR);
   
-  const totalUSD = allRecords
-    .filter(r => r.Periodo === selectedPeriod && r.Validacion_LIQ === "Validada")
-    .reduce((acc, r) => acc + (r.Importe_Pesos || 0), 0);
-  
   let estado = type === 'confirm' ? "Confirmada (No facturar)" : "Pendiente de Aprobación";
   let obs = type === 'suggest' ? document.getElementById('obs-text')?.value || "" : "";
 
   if (type === 'suggest' && !obs) { alert("Por favor, indique los cambios necesarios."); return; }
 
   try {
-    const existingLiq = liqTotalMap[idLiq];
-    const liqFields = { Periodo: pInfo.id, Importe_Total_USD: totalUSD };
-    
-    if (existingLiq?.id) {
-      await grist.docApi.applyUserActions([["UpdateRecord", "Liquidaciones", existingLiq.id, liqFields]]);
-    } else {
-      await grist.docApi.applyUserActions([["AddRecord", "Liquidaciones", null, liqFields]]);
-    }
-
+    // Solo gestionamos la tabla de Seguimiento_Liquidaciones
     const existingSeg = liqStatusMap[idLiq];
     const segFields = { Periodo: pInfo.id, Estado: estado, Observaciones: obs };
     
@@ -160,7 +148,7 @@ async function handleAction(type) {
       await grist.docApi.applyUserActions([["AddRecord", "Seguimiento_Liquidaciones", null, segFields]]);
     }
     
-    liqTotalMap[idLiq] = { id: existingLiq?.id || null, total: totalUSD };
+    // Actualizamos solo el mapa de estados
     liqStatusMap[idLiq] = { id: existingSeg?.id || null, estado: estado, observaciones: obs };
     
     if (type === 'suggest') {
@@ -182,7 +170,7 @@ async function handleAction(type) {
     
   } catch (e) { 
     console.error("❌ Error:", e);
-    alert("Error al guardar: " + e.message); 
+    alert("Error al guardar seguimiento: " + e.message); 
   }
 }
 
