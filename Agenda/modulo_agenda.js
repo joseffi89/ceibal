@@ -59,8 +59,8 @@ async function inicializar() {
   await cargarCalendarioFeriados();
   
   // Asignación de eventos a botones
-  document.getElementById('btnAbrirInforme').onclick = () => { 
-      prepararModalInforme(); 
+  document.getElementById('btnAbrirInforme').onclick = async () => { 
+      await prepararModalInforme(); 
       document.getElementById('modalInforme').style.display = 'flex'; 
   };
   document.getElementById('btnAbrirRecuperacion').onclick = () => { 
@@ -382,10 +382,11 @@ document.getElementById('btnGenerar').onclick = async () => {
 /**
  * FORMULARIO DE INFORME (DINÁMICO)
  */
-function prepararModalInforme() {
+async function prepararModalInforme() { // Agregamos async
   const sel = document.getElementById('estadoSelect');
   const btn = document.getElementById('btnEnviar');
   const estaBloqueado = informeExistente && informeExistente.Estado_Edicion === "BLOQUEADO";
+  
   document.getElementById('lockedWarning').style.display = estaBloqueado ? 'block' : 'none';
   btn.style.display = estaBloqueado ? 'none' : 'flex';
 
@@ -393,6 +394,20 @@ function prepararModalInforme() {
   document.getElementById('infoGrupo').innerHTML = `<i class="fa-solid fa-graduation-cap"></i> ${recordClase?.ID_Grupo_display || recordClase?.ID_Grupo || '---'}`;
   document.getElementById('infoFecha').innerHTML = `<i class="fa-regular fa-calendar"></i> ${formatDate(recordClase?.Clase)}`;
   document.getElementById('infoHora').innerHTML = `<i class="fa-regular fa-clock"></i> ${recordClase?.Hora_Desde || '--:--'} hs`;
+
+  // --- NUEVA LÓGICA: Restricción Semanal (IDs 6 y 7) ---
+  const agenda = await grist.docApi.fetchTable('Agenda');
+  const grupoIdActual = recordClase.ID_Grupo_Grupo || recordClase.ID_Grupo;
+  const semanaActual = recordClase.Clase_Semana;
+  
+  // Buscamos si ya existe otra clase en la misma semana para este grupo con estado 6 o 7
+  const yaExisteCancelacionSemanal = agenda.id.some((id, i) => {
+      const mismoGrupo = (Array.isArray(agenda.ID_Grupo[i]) ? agenda.ID_Grupo[i][0] : agenda.ID_Grupo[i]) === (Array.isArray(grupoIdActual) ? grupoIdActual[0] : grupoIdActual);
+      const mismaSemana = agenda.Clase_Semana[i] === semanaActual;
+      const esEstadoRestringido = [6, 7].includes(Number(agenda.Estado_Clase_ID[i]));
+      return id !== recordClase.id && mismoGrupo && mismaSemana && esEstadoRestringido;
+  });
+  // ----------------------------------------------------
 
   if (informeExistente) {
     sel.value = informeExistente.Estado;
@@ -416,58 +431,37 @@ function prepararModalInforme() {
   } else { sel.value = ""; document.getElementById('dynamicForm').innerHTML = ''; }
   sel.disabled = estaBloqueado;
 
-    // === NUEVA LÓGICA: Restringir estados 6 y 7 para recuperaciones ===
   const esRecuperada = recordClase?.Tipo_de_Clase === "Recuperación";
-  // Fallback por si es un registro viejo sin la columna nueva
   const estadoOriginal = recordClase?.Estado_Clase_Original_ID || recordClase?.Estado_Clase_ID; 
-  const aplicaRestriccion = esRecuperada && [6, 7].includes(Number(estadoOriginal));
+  const aplicaRestriccionRecup = esRecuperada && [6, 7].includes(Number(estadoOriginal));
 
+  // Iteramos las opciones para aplicar los bloqueos correspondientes
   for (let i = 0; i < sel.options.length; i++) {
       const opt = sel.options[i];
       const val = Number(opt.value);
-      if (aplicaRestriccion && [6, 7].includes(val)) {
+      
+      // 1. Limpiamos las etiquetas previas para trabajar sobre el texto original
+      opt.text = opt.text.replace(' (No permitido)', '').replace(' (Límite semanal)', '');
+
+      const esEstadoRestringido = [6, 7].includes(val);
+      const bloqueadoPorRecup = esEstadoRestringido && aplicaRestriccionRecup;
+      const bloqueadoPorSemana = esEstadoRestringido && yaExisteCancelacionSemanal;
+
+      if (bloqueadoPorRecup || bloqueadoPorSemana) {
           opt.disabled = true;
-          if (!opt.text.includes('(No permitido)')) opt.text += ' (No permitido)';
+          
+          // 2. Agregamos las etiquetas de forma independiente según corresponda
+          if (bloqueadoPorRecup) {
+              opt.text += ' (No permitido)';
+          }
+          if (bloqueadoPorSemana) {
+              opt.text += ' (Límite semanal)';
+          }
       } else {
           opt.disabled = false;
-          opt.text = opt.text.replace(' (No permitido)', '');
       }
   }
 }
-
-document.getElementById('estadoSelect').onchange = function() {
-  const container = document.getElementById('dynamicForm');
-  container.innerHTML = '';
-  const val = this.value;
-  (configForm[val] || []).forEach(c => {
-    const group = document.createElement('div');
-    group.className = 'form-group';
-    group.innerHTML = `<label>${c.label}${c.required?' <span class="req">*</span>':''}</label>`;
-    
-    if (c.id === 'Evidencia' || c.id === 'Evidencia_Coordinacion') {
-      const h = document.createElement('div'); h.className = 'helper-text';
-      h.innerHTML = `Subir <b>el archivo</b> a <a href="${recordClase?.Carpeta_Drive || '#'}" target="_blank"><i class="fa-solid fa-folder-open"></i> Drive</a> y pegar el link del <b>archivo</b> (no de la carpeta):`;
-      group.appendChild(h);
-    }
-    
-    let input;
-    if (c.type === 'select') {
-      input = document.createElement('select');
-      let opts = (c.id === 'Motivo') ? motivosPorEstado[val] : opcionesManuales[c.id];
-      input.innerHTML = `<option value="">Seleccione...</option>` + opts.map(o => `<option value="${o}">${o}</option>`).join('');
-    } else if (c.type === 'time') {
-      const cont = document.createElement('div'); cont.style.display = 'flex'; cont.style.gap = '5px';
-      cont.innerHTML = `<input type="number" id="${c.id}_h" style="width:60px" placeholder="HH" min="0" max="23">:<input type="number" id="${c.id}_m" style="width:60px" placeholder="MM" min="0" max="59">`;
-      input = document.createElement('input'); input.type = 'hidden'; group.appendChild(cont);
-    } else { 
-        input = document.createElement(c.type === 'textarea' ? 'textarea' : 'input'); 
-        if(c.type !== 'textarea') input.type = c.type; 
-    }
-    input.id = c.id; input.addEventListener('input', actualizarVisibilidad);
-    group.appendChild(input); container.appendChild(group);
-  });
-  actualizarVisibilidad();
-};
 
 function actualizarVisibilidad() {
   const st = document.getElementById('estadoSelect').value;
