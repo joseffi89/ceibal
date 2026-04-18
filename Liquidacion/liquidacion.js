@@ -28,24 +28,24 @@ function buildIDLiq(periodo, dr) {
 async function loadData() {
   if (isLoading) return;
   isLoading = true;
-  
+
   try {
     const tableData = await grist.docApi.fetchTable('Periodos_LIQ');
     periodDetails = {};
     const idToNameMap = {};
-    
+
     for (let i = 0; i < tableData.id.length; i++) {
       const pName = tableData.Periodo[i];
       const pId = tableData.id[i];
-      
-      periodDetails[pName] = { 
+
+      periodDetails[pName] = {
         id: pId,
-        desde: tableData.Desde[i], 
+        desde: tableData.Desde[i],
         hasta: tableData.Hasta[i],
         habilitado: tableData.Habilitar_a_DR[i],
-        tipoCambio: tableData.Tipo_de_cambio ? tableData.Tipo_de_cambio[i] : 0 
+        tipoCambio: tableData.Tipo_de_cambio ? tableData.Tipo_de_cambio[i] : 0
       };
-      
+
       idToNameMap[pId] = pName;
     }
 
@@ -54,9 +54,9 @@ async function loadData() {
     for (let i = 0; i < tableLiq.id.length; i++) {
       const idLiq = tableLiq.ID_Liq ? tableLiq.ID_Liq[i] : null;
       if (idLiq) {
-        liqTotalMap[idLiq] = { 
-          id: tableLiq.id[i], 
-          total: tableLiq.Importe_Total_USD ? tableLiq.Importe_Total_USD[i] : 0 
+        liqTotalMap[idLiq] = {
+          id: tableLiq.id[i],
+          total: tableLiq.Importe_Total_USD ? tableLiq.Importe_Total_USD[i] : 0
         };
       }
     }
@@ -66,61 +66,75 @@ async function loadData() {
     for (let i = 0; i < tableSeg.id.length; i++) {
       const idLiq = tableSeg.ID_Liq ? tableSeg.ID_Liq[i] : null;
       if (idLiq) {
-        liqStatusMap[idLiq] = { 
-          id: tableSeg.id[i], 
+        liqStatusMap[idLiq] = {
+          id: tableSeg.id[i],
           estado: tableSeg.Estado[i] || "Pendiente Confirmación DR",
           observaciones: tableSeg.Observaciones ? tableSeg.Observaciones[i] : ""
         };
       }
     }
-    
+
     isInitialized = true;
-    
-  } catch (err) { 
-    console.error("❌ Error en loadData:", err); 
+
+  } catch (err) {
+    console.error("❌ Error en loadData:", err);
   } finally {
     isLoading = false;
   }
 }
 
+function getStatusColor(status) {
+  if (status.includes('Pendiente')) return 'var(--status-pending)';
+  if (status === 'Confirmada (No facturar)' || status === 'Confirmada (No Facturar)') return 'var(--status-dark-gray)';
+  return 'var(--grist-green)';
+}
+
 function getStatus(periodName, dr) {
   const idLiq = buildIDLiq(periodName, dr);
   const pInfo = periodDetails[periodName];
-  
+
   if (!pInfo) {
     return "Pendiente Confirmación DR";
   }
-  
+
   const record = liqStatusMap[idLiq];
-  
+
   if (!record || !record.estado) {
     return "Pendiente Confirmación DR";
   }
-  
+
   const estado = record.estado;
-  
+
   if (estado === "Confirmada (No facturar)" && pInfo.tipoCambio && pInfo.tipoCambio > 0) {
     return "Factura Solicitada";
   }
-  
+
   return estado;
 }
 
 function renderSidebar() {
   if (!currentDR || !isInitialized) return;
-  
+
   const list = document.getElementById('period-list');
   const validPeriods = [...new Set(allRecords
     .filter(r => r.Periodo && r.Validacion_LIQ === "Validada" && periodDetails[r.Periodo]?.habilitado)
     .map(r => r.Periodo)
   )].sort((a, b) => b.localeCompare(a));
-  
+
   list.innerHTML = '';
   validPeriods.forEach(p => {
     const status = getStatus(p, currentDR);
+    const badgeColor = getStatusColor(status);
     const div = document.createElement('div');
-    div.className = `period-item ${selectedPeriod === p ? 'active' : ''}`;
-    div.innerHTML = `<span>${p}</span><span class="period-badge" style="color:${status.includes('Pendiente') ? '#f59e0b' : 'var(--grist-green)'}">${status}</span>`;
+    const isActive = selectedPeriod === p;
+    div.className = `period-item ${isActive ? 'active' : ''}`;
+    
+    if (isActive) {
+      div.style.color = badgeColor;
+      div.style.borderRightColor = badgeColor;
+    }
+    
+    div.innerHTML = `<span>${p}</span><span class="period-badge" style="color:${badgeColor}">${status}</span>`;
     div.onclick = () => { selectedPeriod = p; renderSidebar(); renderDetail(p); };
     list.appendChild(div);
   });
@@ -129,9 +143,9 @@ function renderSidebar() {
 async function handleAction(type) {
   const pInfo = periodDetails[selectedPeriod];
   if (!pInfo || !currentDR) { alert("Error: período o DR no encontrado"); return; }
-  
+
   const idLiq = buildIDLiq(selectedPeriod, currentDR);
-  
+
   let estado = type === 'confirm' ? "Confirmada (No facturar)" : "Pendiente de Aprobación";
   let obs = type === 'suggest' ? document.getElementById('obs-text')?.value || "" : "";
 
@@ -141,36 +155,36 @@ async function handleAction(type) {
     // Solo gestionamos la tabla de Seguimiento_Liquidaciones
     const existingSeg = liqStatusMap[idLiq];
     const segFields = { Periodo: pInfo.id, Estado: estado, Observaciones: obs };
-    
+
     if (existingSeg?.id) {
       await grist.docApi.applyUserActions([["UpdateRecord", "Seguimiento_Liquidaciones", existingSeg.id, segFields]]);
     } else {
       await grist.docApi.applyUserActions([["AddRecord", "Seguimiento_Liquidaciones", null, segFields]]);
     }
-    
+
     // Actualizamos solo el mapa de estados
     liqStatusMap[idLiq] = { id: existingSeg?.id || null, estado: estado, observaciones: obs };
-    
+
     if (type === 'suggest') {
       const obsContainer = document.getElementById('obs-container');
       if (obsContainer) obsContainer.style.display = 'none';
       const obsText = document.getElementById('obs-text');
       if (obsText) obsText.value = '';
     }
-    
+
     renderDetail(selectedPeriod);
     renderSidebar();
-    
+
     setTimeout(() => {
       loadData().then(() => {
         renderDetail(selectedPeriod);
         renderSidebar();
       });
     }, 2000);
-    
-  } catch (e) { 
+
+  } catch (e) {
     console.error("❌ Error:", e);
-    alert("Error al guardar seguimiento: " + e.message); 
+    alert("Error al guardar seguimiento: " + e.message);
   }
 }
 
@@ -179,7 +193,7 @@ function openDetailModal(conceptoFull) {
   const body = document.getElementById('modal-body');
   const title = document.getElementById('modal-title-text');
   title.innerText = `${conceptoFull} (${selectedPeriod})`;
-  
+
   const clases = allRecords.filter(r => {
     if (r.Periodo !== selectedPeriod || r.Validacion_LIQ !== "Validada") return false;
     let cType = r.Estado_Clase;
@@ -200,16 +214,16 @@ function openDetailModal(conceptoFull) {
     <th>Validación LIQ</th>
     ${esCoordinacion ? '<th>Validación Coord</th>' : ''}
   </tr></thead><tbody>`;
-  
+
   clases.forEach(c => {
     // 🔑 Solo mostrar badge si es clase con coordinación
     const coordCell = esCoordinacion ? (() => {
-      const coordBadge = c.Validacion_Coord_Previa === "Validada" 
+      const coordBadge = c.Validacion_Coord_Previa === "Validada"
         ? `<span class="coord-validation validada">✓ Validada</span>`
         : `<span class="coord-validation no-validada">✗ No validada</span>`;
       return `<td>${coordBadge}</td>`;
     })() : '';
-    
+
     html += `<tr>
       <td><strong>#${c.ID_Clase || 'N/A'}</strong></td>
       <td>${c.Dia || '-'}</td>
@@ -233,11 +247,11 @@ function renderDetail(period) {
   const infoP = periodDetails[period];
   const status = getStatus(period, currentDR);
   const filtered = allRecords.filter(r => r.Periodo === period && r.Validacion_LIQ === "Validada");
-  
+
   const tieneTipoCambio = (infoP.tipoCambio && infoP.tipoCambio > 0);
   const simboloMoneda = tieneTipoCambio ? "$" : "USD ";
   const etiquetaTotal = tieneTipoCambio ? "TOTAL NETO A LIQUIDAR" : "TOTAL NETO A LIQUIDAR (USD)";
-  
+
   const readonly = status !== "Pendiente Confirmación DR";
 
   const resumen = {};
@@ -255,7 +269,7 @@ function renderDetail(period) {
     granTotal += (r.Importe_Pesos || 0);
   });
 
-    const billingBanner = status === "Factura Solicitada" ? `
+  const billingBanner = status === "Factura Solicitada" ? `
       <div class="billing-banner">
         <div class="billing-banner-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -279,7 +293,7 @@ function renderDetail(period) {
     <div class="action-bar">
       <div class="current-status">
           <span class="status-label">Estado Actual</span>
-          <span class="status-value" style="color: ${readonly ? 'var(--grist-green)' : 'var(--status-pending)'}">${status}</span>
+          <span class="status-value" style="color: ${getStatusColor(status)}">${status}</span>
       </div>
       ${!readonly ? `
         <div class="buttons-group">
@@ -321,13 +335,13 @@ function renderDetail(period) {
             <tr>
               <td class="qty">${item.cantidad}</td>
               <td>${item.concepto} <span class="view-detail-btn" onclick="openDetailModal('${item.concepto}')">${eyeIcon}</span></td>
-              <td class="currency">${simboloMoneda}${item.unitario.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
-              <td class="currency">${simboloMoneda}${item.subtotal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+              <td class="currency">${simboloMoneda}${item.unitario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+              <td class="currency">${simboloMoneda}${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
             </tr>
           `).join('')}
           <tr class="total-row">
             <td colspan="3" style="text-align: right; padding-right: 20px;">${etiquetaTotal}</td>
-            <td class="currency">${simboloMoneda}${granTotal.toLocaleString('es-AR', {minimumFractionDigits: 2})}</td>
+            <td class="currency">${simboloMoneda}${granTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
           </tr>
         </tbody>
       </table>
@@ -343,10 +357,10 @@ grist.ready({ requiredAccess: 'full' });
 let debounceTimer = null;
 grist.onRecords((records) => {
   if (debounceTimer) clearTimeout(debounceTimer);
-  
+
   debounceTimer = setTimeout(async () => {
     allRecords = records;
-    
+
     if (records.length > 0 && records[0].DR_a_cargo_Apellido_y_Nombre) {
       const newDR = records[0].DR_a_cargo_Apellido_y_Nombre;
       if (currentDR !== newDR) {
@@ -354,7 +368,7 @@ grist.onRecords((records) => {
         selectedPeriod = null;
       }
     }
-    
+
     await loadData();
     renderSidebar();
     if (selectedPeriod) renderDetail(selectedPeriod);
