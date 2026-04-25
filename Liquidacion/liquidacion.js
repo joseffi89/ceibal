@@ -8,9 +8,9 @@ let isInitialized = false;
 let isLoading = false;
 
 const LIQ_INFO = {
-  cuit: "30-12345678-9",
-  razonSocial: "EMPRESA DE SERVICIOS EDUCATIVOS S.A.",
-  condicionIva: "Responsable Inscripto"
+  cuit: "30-71923076-4",
+  razonSocial: "FUNDACIÓN PROGRAMAR",
+  condicionIva: "Exento"
 };
 
 const eyeIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
@@ -128,12 +128,12 @@ function renderSidebar() {
     const div = document.createElement('div');
     const isActive = selectedPeriod === p;
     div.className = `period-item ${isActive ? 'active' : ''}`;
-    
+
     if (isActive) {
       div.style.color = badgeColor;
       div.style.borderRightColor = badgeColor;
     }
-    
+
     div.innerHTML = `<span>${p}</span><span class="period-badge" style="color:${badgeColor}">${status}</span>`;
     div.onclick = () => { selectedPeriod = p; renderSidebar(); renderDetail(p); };
     list.appendChild(div);
