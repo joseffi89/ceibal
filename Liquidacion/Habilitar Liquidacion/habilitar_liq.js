@@ -78,7 +78,7 @@ async function processLiquidation() {
       actions.push(["AddRecord", "Liquidaciones", null, {
         Periodo: parseInt(periodId),
         DR: parseInt(drId), // Asumiendo que es un campo de referencia
-        Importe_Total_USD: totalsByDR[drId]
+        Importe_Total_USD: totalsByDR[drId] + 28 // Se suma un valor fijo de 28 solicitado por el usuario
       }]);
     }
 
