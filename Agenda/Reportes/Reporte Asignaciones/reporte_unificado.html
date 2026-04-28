@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Unificado de Asignaciones</title>
+    <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Unified Dashboard CSS */
+        :root {
+            --primary-color: #16B378;
+            /* Ceibal Green */
+            --primary-hover: #129664;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --orange: #f97316;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* Header & Tabs */
+        .header-title {
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 24px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-title i {
+            color: var(--primary-color);
+        }
+
+        .main-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .main-tab-btn {
+            background: none;
+            border: none;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .main-tab-btn:hover {
+            color: var(--text-main);
+        }
+
+        .main-tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        .view-section {
+            display: none;
+        }
+
+        .view-section.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* KPIs */
+        .kpi-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }
+
+        .kpi-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 12px 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .kpi-card.small {
+            padding: 10px 14px;
+        }
+
+        .kpi-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .kpi-value {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+
+        .kpi-success .kpi-value {
+            color: var(--success);
+        }
+
+        .kpi-danger .kpi-value {
+            color: var(--danger);
+        }
+
+        .kpi-info .kpi-value {
+            color: var(--info);
+        }
+
+        .kpi-warning .kpi-value {
+            color: var(--warning);
+        }
+
+        .kpi-orange .kpi-value {
+            color: var(--orange);
+        }
+
+        /* Salud KPIs (Dynamic Row) */
+        .salud-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            display: none;
+        }
+
+        .salud-row.active {
+            display: grid;
+        }
+
+        .kpi-status-red {
+            border-left: 4px solid var(--danger);
+        }
+
+        .kpi-status-yellow {
+            border-left: 4px solid var(--warning);
+        }
+
+        .kpi-status-orange {
+            border-left: 4px solid var(--orange);
+        }
+
+        .kpi-status-red .kpi-title {
+            color: var(--danger);
+        }
+
+        .kpi-status-yellow .kpi-title {
+            color: var(--warning);
+        }
+
+        .kpi-status-orange .kpi-title {
+            color: var(--orange);
+        }
+
+        /* Filters */
+        .filters-container {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+            display: flex;
+            gap: 16px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .filter-group label {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: var(--text-muted);
+        }
+
+        .filter-group select,
+        .filter-group input {
+            padding: 10px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 14px;
+            outline: none;
+            background-color: #f8fafc;
+        }
+
+        .filter-group select:focus,
+        .filter-group input:focus {
+            border-color: var(--primary-color);
+            background-color: #fff;
+        }
+
+        .reset-btn {
+            padding: 10px 20px;
+            background-color: #f1f5f9;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            height: 42px;
+        }
+
+        .reset-btn:hover {
+            background-color: #e2e8f0;
+        }
+
+        /* Row Status Styles */
+        tbody tr.row-critical {
+            background-color: #fef2f2 !important;
+        }
+
+        tbody tr.row-critical td:first-child {
+            border-left: 4px solid var(--danger);
+        }
+
+        tbody tr.row-recovery {
+            background-color: #fffbeb !important;
+        }
+
+        tbody tr.row-recovery td:first-child {
+            border-left: 4px solid var(--warning);
+        }
+
+        tbody tr.row-alert {
+            background-color: #fff7ed !important;
+        }
+
+        tbody tr.row-alert td:first-child {
+            border-left: 4px solid var(--orange);
+        }
+
+        tbody tr.row-ok {
+            background-color: #f0fdf4 !important;
+        }
+
+        tbody tr.row-ok td:first-child {
+            border-left: 4px solid var(--success);
+        }
+
+        /* Tables */
+        .table-container {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f8fafc;
+            padding: 14px 20px;
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+        }
+
+        tr:hover {
+            background-color: #f8fafc;
+        }
+
+        .badge {
+            padding: 5px 10px;
+            border-radius: 99px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-block;
+        }
+
+        .badge-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge-danger {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-orange {
+            background: #ffedd5;
+            color: #c2410c;
+        }
+
+        /* Alert Icon */
+        .alert-icon {
+            color: var(--danger);
+            margin-left: 8px;
+            font-size: 15px;
+            cursor: help;
+        }
+
+        /* Buttons in Tables */
+        .action-cell {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-action {
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .btn-action:hover {
+            background: #e2e8f0;
+            color: #1e293b;
+            border-color: #cbd5e1;
+            transform: translateY(-1px);
+        }
+
+        .btn-action.btn-charts {
+            background: #eff6ff;
+            color: #3b82f6;
+            border-color: #dbeafe;
+        }
+
+        .btn-action.btn-charts:hover {
+            background: #dbeafe;
+        }
+
+        /* Charts Section */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .chart-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-card.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chart-container-inner {
+            position: relative;
+            height: 300px;
+            width: 100%;
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(4px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: var(--card-bg);
+            width: 95%;
+            max-width: 1000px;
+            max-height: 90vh;
+            border-radius: 20px;
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 16px;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .modal-tabs {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-tab-btn {
+            background: none;
+            border: none;
+            padding: 10px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+
+        .modal-tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        /* History & Comments inside Modal */
+        .history-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .ficha {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .ficha-header {
+            background: #f8fafc;
+            padding: 12px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ficha-body {
+            padding: 14px 16px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .label-ficha {
+            font-size: 10px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .valor-ficha {
+            font-size: 13px;
+            color: #334155;
+            font-weight: 500;
+        }
+
+        .comments-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 24px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .comment-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px 16px;
+        }
+
+        .comment-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .comment-text {
+            font-size: 13px;
+            color: var(--text-main);
+            white-space: pre-wrap;
+        }
+
+        .comment-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-top: 16px;
+            border-top: 2px solid var(--border-color);
+        }
+
+        .comment-form textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 13px;
+            resize: vertical;
+        }
+
+        .comment-form button {
+            align-self: flex-end;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            gap: 8px;
+        }
+
+        .msg-pendiente {
+            background: #fff9eb;
+            color: #9a6700;
+            border: 1px dashed #ffe4a3;
+            padding: 15px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        @media (max-width: 1024px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .kpi-row {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1 class="header-title"><i class="fa-solid fa-gauge-high"></i> Dashboard de Asignaciones</h1>
+
+        <div class="main-tabs">
+            <button class="main-tab-btn active" data-target="view-groups"><i class="fa-solid fa-users"></i>
+                Grupos</button>
+            <button class="main-tab-btn" data-target="view-dr"><i class="fa-solid fa-user-tie"></i> Docentes
+                (DR)</button>
+            <button class="main-tab-btn" data-target="view-charts"><i class="fa-solid fa-chart-column"></i>
+                Analíticas</button>
+        </div>
+
+        <div class="kpi-container">
+            <!-- Row 1: Global Performance (Always visible) -->
+            <div class="kpi-row">
+                <div class="kpi-card small">
+                    <div class="kpi-title">Total Clases</div>
+                    <div class="kpi-value" id="kpi-total">0</div>
+                </div>
+                <div class="kpi-card small kpi-success">
+                    <div class="kpi-title">Dictadas</div>
+                    <div class="kpi-value" id="kpi-dictadas">0</div>
+                </div>
+                <div class="kpi-card small kpi-danger">
+                    <div class="kpi-title">Canceladas</div>
+                    <div class="kpi-value" id="kpi-canceladas">0</div>
+                </div>
+                <div class="kpi-card small kpi-info" id="card-rendimiento">
+                    <div class="kpi-title">% Rendimiento</div>
+                    <div class="kpi-value" id="kpi-tasa-dictadas">0%</div>
+                </div>
+                <div class="kpi-card small kpi-warning" id="card-recuperacion">
+                    <div class="kpi-title">% Recuperación</div>
+                    <div class="kpi-value" id="kpi-recuperacion">0%</div>
+                </div>
+            </div>
+
+            <!-- Row 2: Health Indicators (Contextual) -->
+            <div id="salud-groups" class="salud-row active">
+                <div class="kpi-card kpi-status-red">
+                    <div class="kpi-title">Grupos Críticos</div>
+                    <div class="kpi-value" id="kpi-grupos-criticos">0</div>
+                </div>
+                <div class="kpi-card kpi-status-orange">
+                    <div class="kpi-title">En Alerta</div>
+                    <div class="kpi-value" id="kpi-grupos-alerta">0</div>
+                </div>
+                <div class="kpi-card kpi-status-yellow">
+                    <div class="kpi-title">En Recuperación</div>
+                    <div class="kpi-value" id="kpi-grupos-recuperacion">0</div>
+                </div>
+            </div>
+
+            <div id="salud-dr" class="salud-row">
+                <div class="kpi-card kpi-status-red">
+                    <div class="kpi-title">DR en Alerta</div>
+                    <div class="kpi-value" id="kpi-dr-alerta">0</div>
+                </div>
+                <div class="kpi-card kpi-status-orange">
+                    <div class="kpi-title">Baja Efectividad</div>
+                    <div class="kpi-value" id="kpi-dr-baja">0</div>
+                </div>
+                <div class="kpi-card kpi-status-yellow">
+                    <div class="kpi-title">Efectividad Media</div>
+                    <div class="kpi-value" id="kpi-dr-media">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: GROUPS -->
+        <div id="view-groups" class="view-section active">
+            <div class="filters-container">
+                <div class="filter-group">
+                    <label for="filter-group-id">Buscar por ID Grupo</label>
+                    <input type="text" id="filter-group-id" placeholder="MVD-123...">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-group-status">Estado del Grupo</label>
+                    <select id="filter-group-status">
+                        <option value="">Todos</option>
+                        <option value="1">Crítico (Rojo)</option>
+                        <option value="2">Recuperación (Amarillo)</option>
+                        <option value="3">Alerta (Naranja)</option>
+                        <option value="4">Ok (Verde)</option>
+                    </select>
+                </div>
+                <button class="reset-btn" id="btn-reset-groups"><i class="fa-solid fa-rotate-right"></i>
+                    Limpiar</button>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID Grupo</th>
+                            <th>Docente</th>
+                            <th style="min-width: 120px;">Mentor/a</th>
+                            <th>Gestión</th>
+                            <th>Rendimiento</th>
+                            <th>Estado</th>
+                            <th style="width: 250px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-groups-body">
+                        <tr>
+                            <td colspan="7" class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i>
+                                <p>Cargando datos...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- VIEW: DR -->
+        <div id="view-dr" class="view-section">
+            <div class="filters-container">
+                <div class="filter-group">
+                    <label for="filter-dr-name">Buscar por Docente</label>
+                    <input type="text" id="filter-dr-name" placeholder="Nombre...">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-dr-status">Efectividad</label>
+                    <select id="filter-dr-status">
+                        <option value="">Todos</option>
+                        <option value="1">Alerta (<60%)< /option>
+                        <option value="2">Baja (60-70%)</option>
+                        <option value="3">Media (70-80%)</option>
+                        <option value="4">Ok (>80%)</option>
+                    </select>
+                </div>
+                <div class="filter-group"
+                    style="flex: 0 0 auto; display: flex; flex-direction: row; align-items: center; gap: 8px; padding-bottom: 12px;">
+                    <input type="checkbox" id="filter-dr-cancel" style="width: 20px; height: 20px; cursor: pointer;">
+                    <label for="filter-dr-cancel" style="margin-bottom: 0; cursor: pointer;">Alerta Cancelaciones
+                        (>10%)</label>
+                </div>
+                <button class="reset-btn" id="btn-reset-dr"><i class="fa-solid fa-rotate-right"></i> Limpiar</button>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Docente a cargo</th>
+                            <th style="min-width: 120px;">Mentor/a</th>
+                            <th>Gestión</th>
+                            <th>Rendimiento</th>
+                            <th>Estado</th>
+                            <th style="width: 150px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-dr-body">
+                        <!-- Poblado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- VIEW: CHARTS -->
+        <div id="view-charts" class="view-section">
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h3 class="chart-title"><i class="fa-solid fa-chart-pie" style="color: var(--danger)"></i>
+                        Cancelaciones por Tipo</h3>
+                    <div class="chart-container-inner"><canvas id="chartCancelaciones"></canvas></div>
+                </div>
+                <div class="chart-card">
+                    <h3 class="chart-title"><i class="fa-solid fa-chart-column" style="color: var(--success)"></i> %
+                        Rendimiento por Período</h3>
+                    <div class="chart-container-inner"><canvas id="chartRendimiento"></canvas></div>
+                </div>
+                <div class="chart-card full-width">
+                    <h3 class="chart-title"><i class="fa-solid fa-bars-staggered" style="color: var(--warning)"></i> Top
+                        Motivos de Cancelación</h3>
+                    <div class="chart-container-inner"><canvas id="chartMotivos"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODALS (Unified) -->
+        <div class="modal-overlay" id="modalDetail">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="chart-title" style="margin-bottom: 0; font-size: 20px;"><i id="modalIcon"
+                            class="fa-solid fa-users"></i> <span id="modalType">Grupo</span>: <span
+                            id="modalName"></span></h2>
+                    <button class="modal-close" id="btnCloseModal"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-tabs" id="modalTabContainer">
+                    <!-- Dinámico: Si es DR tiene pestaña "Grupos", si es Grupo no. -->
+                </div>
+                <div id="modal-view-content">
+                    <!-- Poblado dinámicamente según la pestaña del modal -->
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="reporte_unificado.js"></script>
+</body>
+
+</html>

@@ -664,16 +664,19 @@ async function prepararModalInforme() {
       const val = Number(opt.value);
       
       // Limpiar etiquetas previas
-      opt.text = opt.text.replace(' (No permitido)', '').replace(' (Límite semanal)', '');
+      opt.text = opt.text.replace(' (No permitido)', '').replace(' (Límite semanal)', '').replace(' (No disponible en feriado)', '');
 
+      const esFeriado = recordClase?.Tipo_Dia === 'Feriado';
       const esEstadoRestringido = [6, 7].includes(val);
       const bloqueadoPorRecup = esEstadoRestringido && aplicaRestriccionRecup;
       const bloqueadoPorSemana = esEstadoRestringido && yaExisteCancelacionSemanal;
+      const bloqueadoPorFeriado = esFeriado && val !== 5 && val !== 0;
 
-      if (bloqueadoPorRecup || bloqueadoPorSemana) {
+      if (bloqueadoPorRecup || bloqueadoPorSemana || bloqueadoPorFeriado) {
           opt.disabled = true;
           if (bloqueadoPorRecup) opt.text += ' (No permitido)';
           if (bloqueadoPorSemana) opt.text += ' (Límite semanal)';
+          if (bloqueadoPorFeriado) opt.text += ' (No disponible en feriado)';
       } else {
           opt.disabled = false;
       }
@@ -851,7 +854,7 @@ function formatDate(v) {
  */
 if (typeof grist !== 'undefined') {
   grist.onRecords((records) => {
-    eventosClases = records.filter(r => r.Tipo_Dia === "Hábil").map(r => {
+    eventosClases = records.filter(r => r.Tipo_Dia === "Hábil" || r.Tipo_Dia === "Feriado").map(r => {
       const d = new Date(typeof r.Clase === 'number' ? r.Clase * 1000 : r.Clase);
       let s = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
       
