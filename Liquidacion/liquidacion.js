@@ -2,6 +2,7 @@ let allRecords = [];
 let periodDetails = {};
 let liqStatusMap = {};
 let liqTotalMap = {};
+let dispCountMap = {};
 let selectedPeriod = null;
 let currentDR = null;
 let isInitialized = false;
@@ -72,6 +73,16 @@ async function loadData() {
           observaciones: tableSeg.Observaciones ? tableSeg.Observaciones[i] : ""
         };
       }
+    }
+
+    const tableDisp = await grist.docApi.fetchTable('Disponibilidad');
+    dispCountMap = {};
+    if (tableDisp.DR_Apellido_y_Nombre) {
+      tableDisp.DR_Apellido_y_Nombre.forEach(name => {
+        let n = name;
+        if (Array.isArray(n)) n = n[1];
+        if (n) dispCountMap[n] = (dispCountMap[n] || 0) + 1;
+      });
     }
 
     isInitialized = true;
@@ -269,6 +280,11 @@ function renderDetail(period) {
     granTotal += (r.Importe_Pesos || 0);
   });
 
+  const adicionalUSD = 28;
+  const hasAdicional = (dispCountMap[currentDR] || 0) >= 8;
+  const adicionalFinal = hasAdicional ? (tieneTipoCambio ? (adicionalUSD * infoP.tipoCambio) : adicionalUSD) : 0;
+  granTotal += adicionalFinal;
+
   const billingBanner = status === "Factura Solicitada" ? `
       <div class="billing-banner">
         <div class="billing-banner-icon">
@@ -339,6 +355,14 @@ function renderDetail(period) {
               <td class="currency">${simboloMoneda}${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
             </tr>
           `).join('')}
+          ${hasAdicional ? `
+          <tr>
+            <td class="qty">1</td>
+            <td>Adicional por infraestructura y capacitación</td>
+            <td class="currency">${simboloMoneda}${adicionalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+            <td class="currency">${simboloMoneda}${adicionalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+          </tr>
+          ` : ''}
           <tr class="total-row">
             <td colspan="3" style="text-align: right; padding-right: 20px;">${etiquetaTotal}</td>
             <td class="currency">${simboloMoneda}${granTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>

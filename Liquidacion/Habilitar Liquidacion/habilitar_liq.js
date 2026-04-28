@@ -9,13 +9,13 @@ async function fetchPeriods() {
     const tableData = await grist.docApi.fetchTable('Periodos_LIQ');
     const select = document.getElementById('period-select');
     select.innerHTML = '<option value="">Elija un período...</option>';
-    
+
     periodsData = [];
     for (let i = 0; i < tableData.id.length; i++) {
       const pId = tableData.id[i];
       const pName = tableData.Periodo[i];
       periodsData.push({ id: pId, name: pName });
-      
+
       const option = document.createElement('option');
       option.value = pId;
       option.textContent = pName;
@@ -32,7 +32,7 @@ async function processLiquidation() {
   const periodId = document.getElementById('period-select').value;
   const periodName = periodsData.find(p => p.id == periodId)?.name;
   const btn = document.getElementById('enable-btn');
-  
+
   if (!periodId) {
     showStatus("Seleccione un período válido", "error");
     return;
@@ -42,20 +42,42 @@ async function processLiquidation() {
   showStatus("Procesando...", "");
 
   try {
-    // 1. Traer datos de la tabla Agenda (donde están las clases y validaciones)
+    // 1. Traer datos necesarios
     const agendaData = await grist.docApi.fetchTable('Agenda');
+    const dispData = await grist.docApi.fetchTable('Disponibilidad');
     
-    // 2. Agrupar totales por DR usando la lógica del script anterior
-    // Filtramos por Período y Validacion_LIQ === "Validada"
+    // 1.1 Mapear ID de DR a su nombre desde la propia tabla Agenda
+    const drIdToName = {};
+    if (agendaData.DR_a_cargo && agendaData.DR_a_cargo_Apellido_y_Nombre) {
+      agendaData.id.forEach((id, i) => {
+        const drId = Array.isArray(agendaData.DR_a_cargo[i]) ? agendaData.DR_a_cargo[i][0] : agendaData.DR_a_cargo[i];
+        let drName = agendaData.DR_a_cargo_Apellido_y_Nombre[i];
+        if (Array.isArray(drName)) drName = drName[1];
+        if (drId && drName) drIdToName[drId] = drName;
+      });
+    }
+
+    // 1.2 Contar disponibilidad por nombre de DR
+    const dispCountByName = {};
+    if (dispData.DR_Apellido_y_Nombre) {
+      dispData.DR_Apellido_y_Nombre.forEach(name => {
+        let n = name;
+        if (Array.isArray(n)) n = n[1];
+        if (n) {
+          dispCountByName[n] = (dispCountByName[n] || 0) + 1;
+        }
+      });
+    }
+
+    // 2. Agrupar totales por DR
     const totalsByDR = {};
 
     for (let i = 0; i < agendaData.id.length; i++) {
       const recPeriod = agendaData.Periodo[i];
       const isValidated = agendaData.Validacion_LIQ[i] === "Validada";
       
-      // Verificamos si el registro pertenece al período seleccionado (por nombre o ID según referencia)
       if (recPeriod === periodName && isValidated) {
-        const drRef = agendaData.DR_a_cargo[i]; // Esto suele ser el ID de la tabla DRs
+        const drRef = Array.isArray(agendaData.DR_a_cargo[i]) ? agendaData.DR_a_cargo[i][0] : agendaData.DR_a_cargo[i];
         const importe = agendaData.Importe_USD[i] || 0;
 
         if (!totalsByDR[drRef]) {
@@ -68,17 +90,21 @@ async function processLiquidation() {
     // 3. Preparar las acciones para Grist
     const actions = [];
 
-    // Acción A: Poner Habilitar_a_DR en True en la tabla Periodos_LIQ
+    // Acción A: Habilitar período
     actions.push(["UpdateRecord", "Periodos_LIQ", parseInt(periodId), {
       Habilitar_a_DR: true
     }]);
 
-    // Acción B: Generar registros en la tabla Liquidaciones por cada DR encontrado
+    // Acción B: Generar liquidaciones
     for (const drId in totalsByDR) {
+      const drName = drIdToName[drId];
+      const hasAdicional = (dispCountByName[drName] || 0) >= 8;
+      const adicional = hasAdicional ? 28 : 0;
+
       actions.push(["AddRecord", "Liquidaciones", null, {
         Periodo: parseInt(periodId),
-        DR: parseInt(drId), // Asumiendo que es un campo de referencia
-        Importe_Total_USD: totalsByDR[drId] + 28 // Se suma un valor fijo de 28 solicitado por el usuario
+        DR: parseInt(drId),
+        Importe_Total_USD: totalsByDR[drId] + adicional
       }]);
     }
 
