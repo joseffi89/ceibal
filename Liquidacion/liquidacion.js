@@ -78,10 +78,12 @@ async function loadData() {
     const tableDisp = await grist.docApi.fetchTable('Disponibilidad');
     dispCountMap = {};
     if (tableDisp.DR_Apellido_y_Nombre) {
-      tableDisp.DR_Apellido_y_Nombre.forEach(name => {
+      tableDisp.DR_Apellido_y_Nombre.forEach((name, i) => {
         let n = name;
         if (Array.isArray(n)) n = n[1];
-        if (n) dispCountMap[n] = (dispCountMap[n] || 0) + 1;
+        // Solo contar si está Habilitado
+        const isHabilitado = tableDisp.Habilitado ? tableDisp.Habilitado[i] === "Habilitado" : true;
+        if (n && isHabilitado) dispCountMap[n] = (dispCountMap[n] || 0) + 1;
       });
     }
 
@@ -280,8 +282,28 @@ function renderDetail(period) {
     granTotal += (r.Importe_Pesos || 0);
   });
 
-  const adicionalUSD = 28;
-  const hasAdicional = (dispCountMap[currentDR] || 0) >= 8;
+  // Lógica de Adicional por infraestructura y capacitación
+  const periodLower = period.toLowerCase();
+  let adicionalUSD = 0;
+  let adicionalNombre = "";
+  const dispCount = dispCountMap[currentDR] || 0;
+
+  if (periodLower.includes("marzo")) {
+    // Marzo: Mínimo 5 horas
+    if (dispCount >= 5) adicionalUSD = 28;
+    adicionalNombre = "Adicional por infraestructura y capacitación";
+  } else if (periodLower.includes("abril") || periodLower.includes("mayo") || periodLower.includes("junio") || 
+             periodLower.includes("julio") || periodLower.includes("agosto") || periodLower.includes("septiembre") || 
+             periodLower.includes("setiembre") || periodLower.includes("octubre")) {
+    // Abril a Octubre: Mínimo 8 horas
+    if (dispCount >= 8) adicionalUSD = 28;
+    adicionalNombre = "Adicional por infraestructura";
+  } else {
+    // Noviembre en adelante o no especificado: No se cobra
+    adicionalUSD = 0;
+  }
+
+  const hasAdicional = adicionalUSD > 0;
   const adicionalFinal = hasAdicional ? (tieneTipoCambio ? (adicionalUSD * infoP.tipoCambio) : adicionalUSD) : 0;
   granTotal += adicionalFinal;
 
@@ -358,7 +380,7 @@ function renderDetail(period) {
           ${hasAdicional ? `
           <tr>
             <td class="qty">1</td>
-            <td>Adicional por infraestructura y capacitación</td>
+            <td>${adicionalNombre}</td>
             <td class="currency">${simboloMoneda}${adicionalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
             <td class="currency">${simboloMoneda}${adicionalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
           </tr>
@@ -386,7 +408,9 @@ grist.onRecords((records) => {
     allRecords = records;
 
     if (records.length > 0 && records[0].DR_a_cargo_Apellido_y_Nombre) {
-      const newDR = records[0].DR_a_cargo_Apellido_y_Nombre;
+      let newDR = records[0].DR_a_cargo_Apellido_y_Nombre;
+      if (Array.isArray(newDR)) newDR = newDR[1]; // Normalizar si es referencia
+
       if (currentDR !== newDR) {
         currentDR = newDR;
         selectedPeriod = null;

@@ -622,6 +622,7 @@ window.saveComment = async function (drName) {
 function agruparPorGrupo(records) {
     const map = {};
     records.forEach(r => {
+        if (r.Estado_Grupo === "Dado de baja") return;
         let label = (Array.isArray(r.ID_Grupo) ? r.ID_Grupo[1] : r.ID_Grupo) || 'Sin ID';
         if (!map[label]) { map[label] = { idGrupo: label, docente: r.DR_a_cargo_Apellido_y_Nombre || '-', mentor: r.Mentor_a || '-', responsable: r.Resp_Gestion || '-', clases: [] }; }
         map[label].clases.push(r);
@@ -633,7 +634,9 @@ function agruparPorGrupo(records) {
 function agruparPorDR(records) {
     const map = {};
     records.forEach(r => {
-        let name = (r.DR_a_cargo_Apellido_y_Nombre || '').toString() || 'Sin Docente';
+        if (r.Estado_Grupo === "Dado de baja") return;
+        let name = (r.DR_a_cargo_Apellido_y_Nombre || '').toString().trim();
+        if (!name || name === 'Sin Docente' || name === '-') return;
         if (!map[name]) { map[name] = { drName: name, mentor: r.Mentor_a || '-', responsable: r.Resp_Gestion || '-', clases: [] }; }
         map[name].clases.push(r);
     });

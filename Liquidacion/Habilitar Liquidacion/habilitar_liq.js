@@ -60,10 +60,12 @@ async function processLiquidation() {
     // 1.2 Contar disponibilidad por nombre de DR
     const dispCountByName = {};
     if (dispData.DR_Apellido_y_Nombre) {
-      dispData.DR_Apellido_y_Nombre.forEach(name => {
+      dispData.DR_Apellido_y_Nombre.forEach((name, i) => {
         let n = name;
         if (Array.isArray(n)) n = n[1];
-        if (n) {
+        // Solo contar si está Habilitado
+        const isHabilitado = dispData.Habilitado ? dispData.Habilitado[i] === "Habilitado" : true;
+        if (n && isHabilitado) {
           dispCountByName[n] = (dispCountByName[n] || 0) + 1;
         }
       });
@@ -95,11 +97,27 @@ async function processLiquidation() {
       Habilitar_a_DR: true
     }]);
 
+    // Lógica de mes para el adicional
+    const periodLower = (periodName || "").toLowerCase();
+
     // Acción B: Generar liquidaciones
     for (const drId in totalsByDR) {
       const drName = drIdToName[drId];
-      const hasAdicional = (dispCountByName[drName] || 0) >= 8;
-      const adicional = hasAdicional ? 28 : 0;
+      const dispCount = dispCountByName[drName] || 0;
+      let adicional = 0;
+
+      if (periodLower.includes("marzo")) {
+        // Marzo: Mínimo 5 horas
+        if (dispCount >= 5) adicional = 28;
+      } else if (periodLower.includes("abril") || periodLower.includes("mayo") || periodLower.includes("junio") || 
+                 periodLower.includes("julio") || periodLower.includes("agosto") || periodLower.includes("septiembre") || 
+                 periodLower.includes("setiembre") || periodLower.includes("octubre")) {
+        // Abril a Octubre: Mínimo 8 horas
+        if (dispCount >= 8) adicional = 28;
+      } else {
+        // Noviembre en adelante o no especificado: No se cobra
+        adicional = 0;
+      }
 
       actions.push(["AddRecord", "Liquidaciones", null, {
         Periodo: parseInt(periodId),
