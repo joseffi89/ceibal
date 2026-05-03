@@ -73,6 +73,7 @@ async function processLiquidation() {
 
     // 2. Agrupar totales por DR
     const totalsByDR = {};
+    const isMentorByDR = {};
 
     for (let i = 0; i < agendaData.id.length; i++) {
       const recPeriod = agendaData.Periodo[i];
@@ -86,6 +87,11 @@ async function processLiquidation() {
           totalsByDR[drRef] = 0;
         }
         totalsByDR[drRef] += importe;
+
+        // Detectar si es mentor
+        if (agendaData.Es_Mentor_ && agendaData.Es_Mentor_[i]) {
+          isMentorByDR[drRef] = true;
+        }
       }
     }
 
@@ -119,10 +125,12 @@ async function processLiquidation() {
         adicional = 0;
       }
 
+      const mentorAdicional = isMentorByDR[drId] ? 280 : 0;
+
       actions.push(["AddRecord", "Liquidaciones", null, {
         Periodo: parseInt(periodId),
         DR: parseInt(drId),
-        Importe_Total_USD: totalsByDR[drId] + adicional
+        Importe_Total_USD: totalsByDR[drId] + adicional + mentorAdicional
       }]);
     }
 

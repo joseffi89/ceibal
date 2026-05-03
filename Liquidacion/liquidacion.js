@@ -307,6 +307,12 @@ function renderDetail(period) {
   const adicionalFinal = hasAdicional ? (tieneTipoCambio ? (adicionalUSD * infoP.tipoCambio) : adicionalUSD) : 0;
   granTotal += adicionalFinal;
 
+  // Lógica de mentoría
+  const isMentor = filtered.some(r => r.Es_Mentor_ === true);
+  const mentorUSD = isMentor ? 280 : 0;
+  const mentorFinal = isMentor ? (tieneTipoCambio ? (mentorUSD * infoP.tipoCambio) : mentorUSD) : 0;
+  granTotal += mentorFinal;
+
   const billingBanner = status === "Factura Solicitada" ? `
       <div class="billing-banner">
         <div class="billing-banner-icon">
@@ -383,6 +389,14 @@ function renderDetail(period) {
             <td>${adicionalNombre}</td>
             <td class="currency">${simboloMoneda}${adicionalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
             <td class="currency">${simboloMoneda}${adicionalFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+          </tr>
+          ` : ''}
+          ${isMentor ? `
+          <tr>
+            <td class="qty">1</td>
+            <td>Adicional por mentoría</td>
+            <td class="currency">${simboloMoneda}${mentorFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+            <td class="currency">${simboloMoneda}${mentorFinal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
           </tr>
           ` : ''}
           <tr class="total-row">
