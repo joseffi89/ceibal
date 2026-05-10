@@ -115,10 +115,12 @@ async function updateData(records) {
 function populatePeriodFilters(records) {
     const periodSet = new Set();
     records.forEach(r => {
-        const d = new Date(r.Clase);
-        if (!isNaN(d.getTime())) {
-            const p = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            periodSet.add(p);
+        if (informesMap[r.id]) {
+            const d = new Date(r.Clase);
+            if (!isNaN(d.getTime())) {
+                const p = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                periodSet.add(p);
+            }
         }
     });
     const periodList = Array.from(periodSet).sort((a, b) => b.localeCompare(a));
