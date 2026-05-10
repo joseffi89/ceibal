@@ -19,7 +19,7 @@ const eyeIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" str
 function formatDate(val) {
   if (!val) return "";
   const date = new Date(val * 1000);
-  return date.toLocaleDateString('es-AR');
+  return date.toLocaleDateString('es-AR', { timeZone: 'UTC' });
 }
 
 function buildIDLiq(periodo, dr) {
