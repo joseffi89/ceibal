@@ -7,6 +7,7 @@
     <title>Dashboard Unificado de Asignaciones</title>
     <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -120,7 +121,7 @@
 
         .kpi-row {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(6, 1fr);
             gap: 12px;
         }
 
@@ -681,6 +682,10 @@
                     <div class="kpi-title">Canceladas</div>
                     <div class="kpi-value" id="kpi-canceladas">0</div>
                 </div>
+                <div class="kpi-card small kpi-orange" title="Estados ID 6 y 7">
+                    <div class="kpi-title">Canceladas Pagas</div>
+                    <div class="kpi-value" id="kpi-canceladas-pagas">0</div>
+                </div>
                 <div class="kpi-card small kpi-info" id="card-rendimiento">
                     <div class="kpi-title">% Rendimiento</div>
                     <div class="kpi-value" id="kpi-tasa-dictadas">0%</div>
@@ -727,12 +732,18 @@
         <div id="view-groups" class="view-section active">
             <div class="filters-container">
                 <div class="filter-group">
-                    <label for="filter-group-id">Buscar por ID Grupo</label>
-                    <input type="text" id="filter-group-id" placeholder="MVD-123...">
+                    <label for="filter-group-id">Buscar por ID Grupo / N_RUEE</label>
+                    <input type="text" id="filter-group-id" placeholder="MVD-123 o N_RUEE...">
                 </div>
                 <div class="filter-group">
                     <label for="filter-group-resp">Resp. Gestión</label>
                     <select id="filter-group-resp">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filter-group-period">Período</label>
+                    <select id="filter-group-period">
                         <option value="">Todos</option>
                     </select>
                 </div>
@@ -746,13 +757,17 @@
                         <option value="4">Ok (Verde)</option>
                     </select>
                 </div>
-                <button class="reset-btn" id="btn-reset-groups"><i class="fa-solid fa-rotate-right"></i>
-                    Limpiar</button>
+                <div style="display: flex; gap: 8px;">
+                    <button class="reset-btn" id="btn-reset-groups"><i class="fa-solid fa-rotate-right"></i>
+                        Limpiar</button>
+                    <button class="reset-btn" id="btn-export-groups" style="background-color: #f0fdf4; color: #166534; border-color: #bbf7d0;" onclick="exportToExcel('groups')"><i class="fa-solid fa-file-excel"></i> Exportar</button>
+                </div>
             </div>
             <div class="table-container">
                 <table>
                     <thead>
                         <tr>
+                            <th>N_RUEE</th>
                             <th>ID Grupo</th>
                             <th>Docente</th>
                             <th style="min-width: 120px;">Mentor/a</th>
@@ -787,22 +802,31 @@
                     </select>
                 </div>
                 <div class="filter-group">
+                    <label for="filter-dr-period">Período</label>
+                    <select id="filter-dr-period">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="filter-group">
                     <label for="filter-dr-status">Efectividad</label>
                     <select id="filter-dr-status">
                         <option value="">Todos</option>
-                        <option value="1">Alerta (<60%)< /option>
+                        <option value="1">Alerta (&lt;60%)</option>
                         <option value="2">Baja (60-70%)</option>
                         <option value="3">Media (70-80%)</option>
-                        <option value="4">Ok (>80%)</option>
+                        <option value="4">Ok (&gt;80%)</option>
                     </select>
                 </div>
                 <div class="filter-group"
                     style="flex: 0 0 auto; display: flex; flex-direction: row; align-items: center; gap: 8px; padding-bottom: 12px;">
                     <input type="checkbox" id="filter-dr-cancel" style="width: 20px; height: 20px; cursor: pointer;">
                     <label for="filter-dr-cancel" style="margin-bottom: 0; cursor: pointer;">Alerta Cancelaciones
-                        (>10%)</label>
+                        (&gt;10%)</label>
                 </div>
-                <button class="reset-btn" id="btn-reset-dr"><i class="fa-solid fa-rotate-right"></i> Limpiar</button>
+                <div style="display: flex; gap: 8px;">
+                    <button class="reset-btn" id="btn-reset-dr"><i class="fa-solid fa-rotate-right"></i> Limpiar</button>
+                    <button class="reset-btn" id="btn-export-dr" style="background-color: #f0fdf4; color: #166534; border-color: #bbf7d0;" onclick="exportToExcel('dr')"><i class="fa-solid fa-file-excel"></i> Exportar</button>
+                </div>
             </div>
             <div class="table-container">
                 <table>

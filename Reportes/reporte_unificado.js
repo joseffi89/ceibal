@@ -33,9 +33,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Filter Listeners
     document.getElementById('filter-group-id').addEventListener('input', renderTableGroups);
     document.getElementById('filter-group-resp').addEventListener('change', renderTableGroups);
+    document.getElementById('filter-group-period').addEventListener('change', renderTableGroups);
     document.getElementById('filter-group-status').addEventListener('change', renderTableGroups);
     document.getElementById('filter-dr-name').addEventListener('input', renderTableDR);
     document.getElementById('filter-dr-resp').addEventListener('change', renderTableDR);
+    document.getElementById('filter-dr-period').addEventListener('change', renderTableDR);
     document.getElementById('filter-dr-status').addEventListener('change', renderTableDR);
     document.getElementById('filter-dr-cancel').addEventListener('change', renderTableDR);
 
@@ -43,12 +45,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-reset-groups').addEventListener('click', () => {
         document.getElementById('filter-group-id').value = '';
         document.getElementById('filter-group-resp').value = '';
+        document.getElementById('filter-group-period').value = '';
         document.getElementById('filter-group-status').value = '';
         renderTableGroups();
     });
     document.getElementById('btn-reset-dr').addEventListener('click', () => {
         document.getElementById('filter-dr-name').value = '';
         document.getElementById('filter-dr-resp').value = '';
+        document.getElementById('filter-dr-period').value = '';
         document.getElementById('filter-dr-status').value = '';
         document.getElementById('filter-dr-cancel').checked = false;
         renderTableDR();
@@ -98,6 +102,7 @@ async function updateData(records) {
         }
 
         populateRespGestionFilters(allRecords);
+        populatePeriodFilters(allRecords);
         updateKPIs(allRecords, true);
         renderTableGroups();
         renderTableDR();
@@ -105,6 +110,35 @@ async function updateData(records) {
     } catch (err) {
         console.error("Error en updateData:", err);
     }
+}
+
+function populatePeriodFilters(records) {
+    const periodSet = new Set();
+    records.forEach(r => {
+        const d = new Date(r.Clase);
+        if (!isNaN(d.getTime())) {
+            const p = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            periodSet.add(p);
+        }
+    });
+    const periodList = Array.from(periodSet).sort((a, b) => b.localeCompare(a));
+    
+    const selects = ['filter-group-period', 'filter-dr-period'];
+    selects.forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">Todos</option>';
+        periodList.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            select.appendChild(opt);
+        });
+        if (periodList.includes(currentVal)) {
+            select.value = currentVal;
+        }
+    });
 }
 
 function populateRespGestionFilters(records) {
@@ -167,13 +201,24 @@ function updateKPIs(records, isGlobal = false) {
     const totalClases = validRecords.length;
     let totalDictada = 0;
     let totalCanceladas = 0;
+    let totalCanceladasPagas = 0;
     let totalRecuperacion = 0;
     let totalOriginales = 0;
     let originalesDictadas = 0;
     let originalesCanceladas = 0;
 
     validRecords.forEach(r => {
-        const estado = (r.Estado_Clase || '').toString().toLowerCase().trim();
+        let estadoId = null;
+        let estadoLabel = '';
+        if (Array.isArray(r.Estado_Clase)) {
+            estadoId = r.Estado_Clase[0];
+            estadoLabel = r.Estado_Clase[1];
+        } else {
+            estadoLabel = r.Estado_Clase;
+            estadoId = r.ID_Estado_Clase || r.Estado_Clase_ID; 
+        }
+
+        const estado = (estadoLabel || '').toString().toLowerCase().trim();
         const tipoClase = (r.Tipo_de_Clase || '').toString().toLowerCase().trim();
         const isOriginal = tipoClase === 'original';
         const isRecuperacion = tipoClase.includes('recuperaci') || tipoClase.includes('recuperada');
@@ -189,6 +234,9 @@ function updateKPIs(records, isGlobal = false) {
             if (isRecuperacion) totalRecuperacion++;
         } else if (estado !== 'pendiente' && estado !== '') {
             totalCanceladas++;
+            if (estadoId === 6 || estadoId === 7) {
+                totalCanceladasPagas++;
+            }
         }
     });
 
@@ -234,6 +282,7 @@ function updateKPIs(records, isGlobal = false) {
     animateValue('kpi-total', totalClases);
     animateValue('kpi-dictadas', totalDictada);
     animateValue('kpi-canceladas', totalCanceladas);
+    animateValue('kpi-canceladas-pagas', totalCanceladasPagas);
 
     const kpiTotal = document.getElementById('kpi-total');
     if (kpiTotal) kpiTotal.closest('.kpi-card').title = `Total Originales: ${totalOriginales}`;
@@ -262,15 +311,26 @@ function updateKPIs(records, isGlobal = false) {
 function renderTableGroups() {
     const searchFilter = document.getElementById('filter-group-id').value.toLowerCase();
     const respFilter = document.getElementById('filter-group-resp').value;
+    const periodFilter = document.getElementById('filter-group-period').value;
     const estadoFilter = document.getElementById('filter-group-status').value;
 
     const gruposMap = agruparPorGrupo(allRecords);
     let gruposArray = Object.values(gruposMap).map(g => {
-        const statusObj = processGroupStatus(g.clases);
-        return { ...g, ...statusObj };
+        let clasesAProcesar = g.clases;
+        if (periodFilter) {
+            clasesAProcesar = g.clases.filter(c => {
+                const d = new Date(c.Clase);
+                if (isNaN(d.getTime())) return false;
+                const p = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                return p === periodFilter;
+            });
+        }
+        const statusObj = processGroupStatus(clasesAProcesar);
+        return { ...g, ...statusObj, clases: clasesAProcesar };
     });
 
-    if (searchFilter) gruposArray = gruposArray.filter(g => g.idGrupo.toLowerCase().includes(searchFilter));
+    if (periodFilter) gruposArray = gruposArray.filter(g => g.clases.length > 0);
+    if (searchFilter) gruposArray = gruposArray.filter(g => g.idGrupo.toLowerCase().includes(searchFilter) || g.ruee.toLowerCase().includes(searchFilter));
     if (respFilter) gruposArray = gruposArray.filter(g => g.responsable === respFilter);
     if (estadoFilter) gruposArray = gruposArray.filter(g => g.priority.toString() === estadoFilter);
 
@@ -292,6 +352,7 @@ function renderTableGroups() {
         const tr = document.createElement('tr');
         tr.className = g.rowClass;
         tr.innerHTML = `
+            <td>${g.ruee}</td>
             <td><strong>${g.idGrupo}</strong></td>
             <td>${g.docente}</td>
             <td>${g.mentor}</td>
@@ -309,15 +370,26 @@ function renderTableGroups() {
 function renderTableDR() {
     const searchFilter = document.getElementById('filter-dr-name').value.toLowerCase();
     const respFilter = document.getElementById('filter-dr-resp').value;
+    const periodFilter = document.getElementById('filter-dr-period').value;
     const estadoFilter = document.getElementById('filter-dr-status').value;
     const alertCancFilter = document.getElementById('filter-dr-cancel').checked;
 
     const drMap = agruparPorDR(allRecords);
     let drArray = Object.values(drMap).map(d => {
-        const statusObj = processDRStatus(d.clases);
-        return { ...d, ...statusObj };
+        let clasesAProcesar = d.clases;
+        if (periodFilter) {
+            clasesAProcesar = d.clases.filter(c => {
+                const date = new Date(c.Clase);
+                if (isNaN(date.getTime())) return false;
+                const p = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                return p === periodFilter;
+            });
+        }
+        const statusObj = processDRStatus(clasesAProcesar);
+        return { ...d, ...statusObj, clases: clasesAProcesar };
     });
 
+    if (periodFilter) drArray = drArray.filter(d => d.clases.length > 0);
     if (searchFilter) drArray = drArray.filter(d => d.drName.toLowerCase().includes(searchFilter));
     if (respFilter) drArray = drArray.filter(d => d.responsable === respFilter);
     if (estadoFilter) drArray = drArray.filter(d => d.priority.toString() === estadoFilter);
@@ -669,7 +741,8 @@ function agruparPorGrupo(records) {
     records.forEach(r => {
         if (r.Estado_Grupo === "Dado de baja") return;
         let label = (Array.isArray(r.ID_Grupo) ? r.ID_Grupo[1] : r.ID_Grupo) || 'Sin ID';
-        if (!map[label]) { map[label] = { idGrupo: label, docente: r.DR_a_cargo_Apellido_y_Nombre || '-', mentor: r.Mentor_a || '-', responsable: r.Resp_Gestion || '-', clases: [] }; }
+        let ruee = (Array.isArray(r.N_RUEE) ? r.N_RUEE[1] : r.N_RUEE) || '-';
+        if (!map[label]) { map[label] = { idGrupo: label, ruee: ruee.toString(), docente: r.DR_a_cargo_Apellido_y_Nombre || '-', mentor: r.Mentor_a || '-', responsable: r.Resp_Gestion || '-', clases: [] }; }
         map[label].clases.push(r);
     });
     Object.values(map).forEach(g => { g.clases.sort((a, b) => new Date(a.Clase || 0) - new Date(b.Clase || 0)); });
@@ -690,44 +763,86 @@ function agruparPorDR(records) {
 }
 
 function processGroupStatus(clases) {
-    let originales = 0, dictadas = 0;
+    let originales = 0, dictadas = 0, canceladas = 0, canceladasPagas = 0, recuperadas = 0;
     clases.forEach(c => {
-        const est = (c.Estado_Clase || '').toLowerCase().trim();
-        const tip = (c.Tipo_de_Clase || '').toLowerCase().trim();
+        let estadoId = null;
+        let estadoLabel = '';
+        if (Array.isArray(c.Estado_Clase)) {
+            estadoId = c.Estado_Clase[0];
+            estadoLabel = c.Estado_Clase[1];
+        } else {
+            estadoLabel = c.Estado_Clase;
+            estadoId = c.ID_Estado_Clase || c.Estado_Clase_ID;
+        }
+
+        const est = (estadoLabel || '').toString().toLowerCase().trim();
+        const tip = (c.Tipo_de_Clase || '').toString().toLowerCase().trim();
         if (tip === 'original' && est !== 'pendiente' && est !== '') originales++;
-        if (est === 'dictada' && (tip === 'original' || tip.includes('recuperaci') || tip.includes('recuperada'))) dictadas++;
+        if (est === 'dictada' && (tip === 'original' || tip.includes('recuperaci') || tip.includes('recuperada'))) {
+            dictadas++;
+            if (tip.includes('recuperaci') || tip.includes('recuperada')) recuperadas++;
+        } else if (est !== 'pendiente' && est !== '') {
+            canceladas++;
+            if (estadoId === 6 || estadoId === 7) canceladasPagas++;
+        }
     });
     const percent = originales > 0 ? (dictadas / originales) * 100 : 0;
-    const passedClases = clases.filter(c => { const est = (c.Estado_Clase || '').toLowerCase().trim(); return est !== 'pendiente' && est !== ''; });
+    const recuperacion = canceladas > 0 ? (recuperadas / canceladas) * 100 : 0;
+    const passedClases = clases.filter(c => { const est = (c.Estado_Clase || '').toString().toLowerCase().trim(); return est !== 'pendiente' && est !== ''; });
     const last3 = passedClases.slice(-3);
-    const last3NotDictadas = last3.length > 0 && last3.every(c => (c.Estado_Clase || '').toLowerCase().trim() !== 'dictada');
+    const last3NotDictadas = last3.length > 0 && last3.every(c => {
+        let estadoLabel = Array.isArray(c.Estado_Clase) ? c.Estado_Clase[1] : c.Estado_Clase;
+        return (estadoLabel || '').toString().toLowerCase().trim() !== 'dictada';
+    });
     let status = 'Ok', badgeClass = 'badge-success', rowClass = 'row-ok', priority = 4;
     if (percent < 60) {
-        const lastEst = passedClases.length > 0 ? (passedClases[passedClases.length - 1].Estado_Clase || '').toLowerCase().trim() : '';
+        let lastEst = '';
+        if (passedClases.length > 0) {
+            const lc = passedClases[passedClases.length - 1];
+            lastEst = (Array.isArray(lc.Estado_Clase) ? lc.Estado_Clase[1] : lc.Estado_Clase || '').toString().toLowerCase().trim();
+        }
         if (lastEst !== 'dictada' && lastEst !== '') { status = 'Grupo Crítico'; badgeClass = 'badge-danger'; rowClass = 'row-critical'; priority = 1; }
         else { status = 'Grupo en Recuperación'; badgeClass = 'badge-warning'; rowClass = 'row-recovery'; priority = 2; }
     } else if (last3NotDictadas) { status = 'Grupo en Alerta'; badgeClass = 'badge-orange'; rowClass = 'row-alert'; priority = 3; }
-    return { percent, dictadas, originales, status, badgeClass, rowClass, priority };
+    return { percent, dictadas, originales, canceladas, canceladasPagas, recuperadas, recuperacion, status, badgeClass, rowClass, priority };
 }
 
 function processDRStatus(clases) {
-    let originales = 0, dictadas = 0, canceladas = 0;
+    let originales = 0, dictadas = 0, canceladas = 0, canceladasDR = 0, canceladasPagas = 0, recuperadas = 0;
     clases.forEach(c => {
-        const est = (c.Estado_Clase || '').toLowerCase().trim();
-        const tip = (c.Tipo_de_Clase || '').toLowerCase().trim();
+        let estadoId = null;
+        let estadoLabel = '';
+        if (Array.isArray(c.Estado_Clase)) {
+            estadoId = c.Estado_Clase[0];
+            estadoLabel = c.Estado_Clase[1];
+        } else {
+            estadoLabel = c.Estado_Clase;
+            estadoId = c.ID_Estado_Clase || c.Estado_Clase_ID;
+        }
+
+        const est = (estadoLabel || '').toString().toLowerCase().trim();
+        const tip = (c.Tipo_de_Clase || '').toString().toLowerCase().trim();
         if (tip === 'original' && est !== 'pendiente' && est !== '') originales++;
-        if (est === 'dictada' && (tip === 'original' || tip.includes('recuperaci') || tip.includes('recuperada'))) dictadas++;
-        else if (est !== 'pendiente' && est !== '') canceladas++;
+        if (est === 'dictada' && (tip === 'original' || tip.includes('recuperaci') || tip.includes('recuperada'))) {
+            dictadas++;
+            if (tip.includes('recuperaci') || tip.includes('recuperada')) recuperadas++;
+        }
+        else if (est !== 'pendiente' && est !== '') {
+            canceladas++;
+            if (estadoId === 4 || est === 'cancelada dr') canceladasDR++;
+            if (estadoId === 6 || estadoId === 7) canceladasPagas++;
+        }
     });
     const percent = originales > 0 ? (dictadas / originales) * 100 : 0;
-    const totalPasadas = clases.filter(c => { const est = (c.Estado_Clase || '').toLowerCase().trim(); return est !== 'pendiente' && est !== ''; }).length;
-    const tasaCancelacion = totalPasadas > 0 ? (canceladas / totalPasadas) : 0;
+    const recuperacion = canceladas > 0 ? (recuperadas / canceladas) * 100 : 0;
+    const totalPasadas = clases.filter(c => { const est = (Array.isArray(c.Estado_Clase) ? c.Estado_Clase[1] : c.Estado_Clase || '').toString().toLowerCase().trim(); return est !== 'pendiente' && est !== ''; }).length;
+    const tasaCancelacion = totalPasadas > 0 ? (canceladasDR / totalPasadas) : 0;
     const hasAlertaCancelaciones = tasaCancelacion >= 0.10;
     let status = 'Ok', badgeClass = 'badge-success', rowClass = 'row-ok', priority = 4;
     if (percent < 60) { status = 'Alerta'; badgeClass = 'badge-danger'; rowClass = 'row-critical'; priority = 1; }
     else if (percent < 70) { status = 'Baja Efectividad'; badgeClass = 'badge-orange'; rowClass = 'row-alert'; priority = 2; }
     else if (percent < 80) { status = 'Efectividad Media'; badgeClass = 'badge-warning'; rowClass = 'row-recovery'; priority = 3; }
-    return { percent, dictadas, originales, status, badgeClass, rowClass, priority, hasAlertaCancelaciones, tasaCancelacion };
+    return { percent, dictadas, originales, canceladas, canceladasPagas, recuperadas, recuperacion, status, badgeClass, rowClass, priority, hasAlertaCancelaciones, tasaCancelacion };
 }
 
 function renderDoughnut(id, data, labels, colors, subtext = 'TOTAL') {
@@ -795,3 +910,105 @@ function formatearFecha(fecha) {
 }
 
 function getLabel(val) { if (Array.isArray(val)) return val[1]; return val || '-'; }
+
+function exportToExcel(type) {
+    if (typeof XLSX === 'undefined') {
+        alert("La librería para exportar a Excel aún se está cargando. Por favor, intenta de nuevo.");
+        return;
+    }
+
+    let dataToExport = [];
+    let filename = "";
+
+    if (type === 'groups') {
+        filename = "Reporte_Grupos.xlsx";
+        const searchFilter = document.getElementById('filter-group-id').value.toLowerCase();
+        const respFilter = document.getElementById('filter-group-resp').value;
+        const periodFilter = document.getElementById('filter-group-period').value;
+        const estadoFilter = document.getElementById('filter-group-status').value;
+
+        const gruposMap = agruparPorGrupo(allRecords);
+        let gruposArray = Object.values(gruposMap).map(g => {
+            let clasesAProcesar = g.clases;
+            if (periodFilter) {
+                clasesAProcesar = g.clases.filter(c => {
+                    const d = new Date(c.Clase);
+                    if (isNaN(d.getTime())) return false;
+                    const p = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    return p === periodFilter;
+                });
+            }
+            const statusObj = processGroupStatus(clasesAProcesar);
+            return { ...g, ...statusObj, clases: clasesAProcesar };
+        });
+
+        if (periodFilter) gruposArray = gruposArray.filter(g => g.clases.length > 0);
+        if (searchFilter) gruposArray = gruposArray.filter(g => g.idGrupo.toLowerCase().includes(searchFilter) || g.ruee.toLowerCase().includes(searchFilter));
+        if (respFilter) gruposArray = gruposArray.filter(g => g.responsable === respFilter);
+        if (estadoFilter) gruposArray = gruposArray.filter(g => g.priority.toString() === estadoFilter);
+
+        dataToExport = gruposArray.map(g => ({
+            "N_RUEE": g.ruee,
+            "Docente": g.docente,
+            "Mentor/a": g.mentor,
+            "Gestión": g.responsable,
+            "Originales": g.originales,
+            "Dictadas": g.dictadas,
+            "Canceladas": g.canceladas,
+            "Canceladas Pagas": g.canceladasPagas,
+            "% Rendimiento": Math.round(g.percent) + "%",
+            "% Recuperación": Math.round(g.recuperacion) + "%"
+        }));
+
+    } else if (type === 'dr') {
+        filename = "Reporte_Docentes_Remotos.xlsx";
+        const searchFilter = document.getElementById('filter-dr-name').value.toLowerCase();
+        const respFilter = document.getElementById('filter-dr-resp').value;
+        const periodFilter = document.getElementById('filter-dr-period').value;
+        const estadoFilter = document.getElementById('filter-dr-status').value;
+        const alertCancFilter = document.getElementById('filter-dr-cancel').checked;
+
+        const drMap = agruparPorDR(allRecords);
+        let drArray = Object.values(drMap).map(d => {
+            let clasesAProcesar = d.clases;
+            if (periodFilter) {
+                clasesAProcesar = d.clases.filter(c => {
+                    const date = new Date(c.Clase);
+                    if (isNaN(date.getTime())) return false;
+                    const p = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                    return p === periodFilter;
+                });
+            }
+            const statusObj = processDRStatus(clasesAProcesar);
+            return { ...d, ...statusObj, clases: clasesAProcesar };
+        });
+
+        if (periodFilter) drArray = drArray.filter(d => d.clases.length > 0);
+        if (searchFilter) drArray = drArray.filter(d => d.drName.toLowerCase().includes(searchFilter));
+        if (respFilter) drArray = drArray.filter(d => d.responsable === respFilter);
+        if (estadoFilter) drArray = drArray.filter(d => d.priority.toString() === estadoFilter);
+        if (alertCancFilter) drArray = drArray.filter(d => d.hasAlertaCancelaciones);
+
+        dataToExport = drArray.map(d => ({
+            "Docente a cargo": d.drName,
+            "Mentor/a": d.mentor,
+            "Gestión": d.responsable,
+            "Originales": d.originales,
+            "Dictadas": d.dictadas,
+            "Canceladas": d.canceladas,
+            "Canceladas Pagas": d.canceladasPagas,
+            "% Rendimiento": Math.round(d.percent) + "%",
+            "% Recuperación": Math.round(d.recuperacion) + "%"
+        }));
+    }
+
+    if (dataToExport.length === 0) {
+        alert("No hay datos para exportar con los filtros actuales.");
+        return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte");
+    XLSX.writeFile(workbook, filename);
+}
