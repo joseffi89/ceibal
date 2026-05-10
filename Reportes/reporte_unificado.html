@@ -693,30 +693,30 @@
 
             <!-- Row 2: Health Indicators (Contextual) -->
             <div id="salud-groups" class="salud-row active">
-                <div class="kpi-card kpi-status-red">
+                <div class="kpi-card kpi-status-red" title="Menos del 60% dictadas sobre Originales y última clase no es Dictada">
                     <div class="kpi-title">Grupos Críticos</div>
                     <div class="kpi-value" id="kpi-grupos-criticos">0</div>
                 </div>
-                <div class="kpi-card kpi-status-orange">
+                <div class="kpi-card kpi-status-orange" title="60% o más de dictadas sobre originales y últimas tres clases no son Dictadas">
                     <div class="kpi-title">En Alerta</div>
                     <div class="kpi-value" id="kpi-grupos-alerta">0</div>
                 </div>
-                <div class="kpi-card kpi-status-yellow">
+                <div class="kpi-card kpi-status-yellow" title="Menos del 60% sobre Originales y última clase registrada ES Dictada">
                     <div class="kpi-title">En Recuperación</div>
                     <div class="kpi-value" id="kpi-grupos-recuperacion">0</div>
                 </div>
             </div>
 
             <div id="salud-dr" class="salud-row">
-                <div class="kpi-card kpi-status-red">
+                <div class="kpi-card kpi-status-red" title="Menos del 60% de Dictadas/Originales">
                     <div class="kpi-title">DR en Alerta</div>
                     <div class="kpi-value" id="kpi-dr-alerta">0</div>
                 </div>
-                <div class="kpi-card kpi-status-orange">
+                <div class="kpi-card kpi-status-orange" title="Entre 60% y 70% de Dictadas/Originales">
                     <div class="kpi-title">Baja Efectividad</div>
                     <div class="kpi-value" id="kpi-dr-baja">0</div>
                 </div>
-                <div class="kpi-card kpi-status-yellow">
+                <div class="kpi-card kpi-status-yellow" title="Entre 70% y 80% de Dictadas/Originales">
                     <div class="kpi-title">Efectividad Media</div>
                     <div class="kpi-value" id="kpi-dr-media">0</div>
                 </div>
@@ -729,6 +729,12 @@
                 <div class="filter-group">
                     <label for="filter-group-id">Buscar por ID Grupo</label>
                     <input type="text" id="filter-group-id" placeholder="MVD-123...">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-group-resp">Resp. Gestión</label>
+                    <select id="filter-group-resp">
+                        <option value="">Todos</option>
+                    </select>
                 </div>
                 <div class="filter-group">
                     <label for="filter-group-status">Estado del Grupo</label>
@@ -773,6 +779,12 @@
                 <div class="filter-group">
                     <label for="filter-dr-name">Buscar por Docente</label>
                     <input type="text" id="filter-dr-name" placeholder="Nombre...">
+                </div>
+                <div class="filter-group">
+                    <label for="filter-dr-resp">Resp. Gestión</label>
+                    <select id="filter-dr-resp">
+                        <option value="">Todos</option>
+                    </select>
                 </div>
                 <div class="filter-group">
                     <label for="filter-dr-status">Efectividad</label>

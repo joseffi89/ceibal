@@ -32,19 +32,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Filter Listeners
     document.getElementById('filter-group-id').addEventListener('input', renderTableGroups);
+    document.getElementById('filter-group-resp').addEventListener('change', renderTableGroups);
     document.getElementById('filter-group-status').addEventListener('change', renderTableGroups);
     document.getElementById('filter-dr-name').addEventListener('input', renderTableDR);
+    document.getElementById('filter-dr-resp').addEventListener('change', renderTableDR);
     document.getElementById('filter-dr-status').addEventListener('change', renderTableDR);
     document.getElementById('filter-dr-cancel').addEventListener('change', renderTableDR);
 
     // Reset Buttons
     document.getElementById('btn-reset-groups').addEventListener('click', () => {
         document.getElementById('filter-group-id').value = '';
+        document.getElementById('filter-group-resp').value = '';
         document.getElementById('filter-group-status').value = '';
         renderTableGroups();
     });
     document.getElementById('btn-reset-dr').addEventListener('click', () => {
         document.getElementById('filter-dr-name').value = '';
+        document.getElementById('filter-dr-resp').value = '';
         document.getElementById('filter-dr-status').value = '';
         document.getElementById('filter-dr-cancel').checked = false;
         renderTableDR();
@@ -93,6 +97,7 @@ async function updateData(records) {
             });
         }
 
+        populateRespGestionFilters(allRecords);
         updateKPIs(allRecords, true);
         renderTableGroups();
         renderTableDR();
@@ -100,6 +105,33 @@ async function updateData(records) {
     } catch (err) {
         console.error("Error en updateData:", err);
     }
+}
+
+function populateRespGestionFilters(records) {
+    const respSet = new Set();
+    records.forEach(r => {
+        if (r.Resp_Gestion && r.Resp_Gestion.trim() !== '') {
+            respSet.add(r.Resp_Gestion.trim());
+        }
+    });
+    const respList = Array.from(respSet).sort();
+    
+    const selects = ['filter-group-resp', 'filter-dr-resp'];
+    selects.forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">Todos</option>';
+        respList.forEach(resp => {
+            const opt = document.createElement('option');
+            opt.value = resp;
+            opt.textContent = resp;
+            select.appendChild(opt);
+        });
+        if (respList.includes(currentVal)) {
+            select.value = currentVal;
+        }
+    });
 }
 
 function switchTab(targetId) {
@@ -203,10 +235,19 @@ function updateKPIs(records, isGlobal = false) {
     animateValue('kpi-dictadas', totalDictada);
     animateValue('kpi-canceladas', totalCanceladas);
 
+    const kpiTotal = document.getElementById('kpi-total');
+    if (kpiTotal) kpiTotal.closest('.kpi-card').title = `Total Originales: ${totalOriginales}`;
+    
+    const kpiDictadas = document.getElementById('kpi-dictadas');
+    if (kpiDictadas) kpiDictadas.closest('.kpi-card').title = `Dictadas Originales: ${originalesDictadas}`;
+    
+    const kpiCanceladas = document.getElementById('kpi-canceladas');
+    if (kpiCanceladas) kpiCanceladas.closest('.kpi-card').title = `Canceladas Originales: ${originalesCanceladas}`;
+
     const kpiRend = document.getElementById('kpi-tasa-dictadas');
     if (kpiRend) {
         kpiRend.textContent = `${tasaDictadas}%`;
-        kpiRend.closest('.kpi-card').title = `Originales: ${totalOriginales}, Dictadas: ${originalesDictadas}, Canceladas: ${originalesCanceladas}`;
+        kpiRend.closest('.kpi-card').removeAttribute('title');
     }
 
     const kpiRec = document.getElementById('kpi-recuperacion');
@@ -220,6 +261,7 @@ function updateKPIs(records, isGlobal = false) {
 
 function renderTableGroups() {
     const searchFilter = document.getElementById('filter-group-id').value.toLowerCase();
+    const respFilter = document.getElementById('filter-group-resp').value;
     const estadoFilter = document.getElementById('filter-group-status').value;
 
     const gruposMap = agruparPorGrupo(allRecords);
@@ -229,6 +271,7 @@ function renderTableGroups() {
     });
 
     if (searchFilter) gruposArray = gruposArray.filter(g => g.idGrupo.toLowerCase().includes(searchFilter));
+    if (respFilter) gruposArray = gruposArray.filter(g => g.responsable === respFilter);
     if (estadoFilter) gruposArray = gruposArray.filter(g => g.priority.toString() === estadoFilter);
 
     gruposArray.sort((a, b) => a.priority - b.priority || a.percent - b.percent);
@@ -265,6 +308,7 @@ function renderTableGroups() {
 
 function renderTableDR() {
     const searchFilter = document.getElementById('filter-dr-name').value.toLowerCase();
+    const respFilter = document.getElementById('filter-dr-resp').value;
     const estadoFilter = document.getElementById('filter-dr-status').value;
     const alertCancFilter = document.getElementById('filter-dr-cancel').checked;
 
@@ -275,6 +319,7 @@ function renderTableDR() {
     });
 
     if (searchFilter) drArray = drArray.filter(d => d.drName.toLowerCase().includes(searchFilter));
+    if (respFilter) drArray = drArray.filter(d => d.responsable === respFilter);
     if (estadoFilter) drArray = drArray.filter(d => d.priority.toString() === estadoFilter);
     if (alertCancFilter) drArray = drArray.filter(d => d.hasAlertaCancelaciones);
 
