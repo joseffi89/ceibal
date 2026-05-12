@@ -10,8 +10,7 @@ let isLoading = false;
 
 const LIQ_INFO = {
   cuit: "30-71923076-4",
-  razonSocial: "FUNDACIÓN PROGRAMAR",
-  condicionIva: "Exento"
+  razonSocial: "FUNDACIÓN PROGRAMAR"
 };
 
 const eyeIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
@@ -292,9 +291,9 @@ function renderDetail(period) {
     // Marzo: Mínimo 5 horas
     if (dispCount >= 5) adicionalUSD = 28;
     adicionalNombre = "Adicional por infraestructura y capacitación";
-  } else if (periodLower.includes("abril") || periodLower.includes("mayo") || periodLower.includes("junio") || 
-             periodLower.includes("julio") || periodLower.includes("agosto") || periodLower.includes("septiembre") || 
-             periodLower.includes("setiembre") || periodLower.includes("octubre")) {
+  } else if (periodLower.includes("abril") || periodLower.includes("mayo") || periodLower.includes("junio") ||
+    periodLower.includes("julio") || periodLower.includes("agosto") || periodLower.includes("septiembre") ||
+    periodLower.includes("setiembre") || periodLower.includes("octubre")) {
     // Abril a Octubre: Mínimo 8 horas
     if (dispCount >= 8) adicionalUSD = 28;
     adicionalNombre = "Adicional por infraestructura";
@@ -362,7 +361,6 @@ function renderDetail(period) {
         <div class="company-data">
           <div class="company-name">${LIQ_INFO.razonSocial}</div>
           <div class="company-detail"><strong>CUIT:</strong> ${LIQ_INFO.cuit}</div>
-          <div class="company-detail"><strong>IVA:</strong> ${LIQ_INFO.condicionIva}</div>
           <div class="company-detail"><strong>PERÍODO:</strong> ${formatDate(infoP.desde)} - ${formatDate(infoP.hasta)}</div>
           <div class="company-detail"><span class="dr-badge"><i class="fa fa-user" aria-hidden="true"></i> ${currentDR}</span></div>
         </div>
