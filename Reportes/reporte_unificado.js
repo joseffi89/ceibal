@@ -312,7 +312,7 @@ function updateKPIs(records, isGlobal = false) {
     const kpiRend = document.getElementById('kpi-tasa-dictadas');
     if (kpiRend) {
         kpiRend.textContent = `${tasaDictadas}%`;
-        kpiRend.closest('.kpi-card').removeAttribute('title');
+        kpiRend.closest('.kpi-card').title = `Dictadas: ${totalDictada} / Originales: ${totalOriginales}`;
     }
 
     const kpiRec = document.getElementById('kpi-recuperacion');
@@ -959,13 +959,13 @@ function getDRDNI(record) {
     return getLabel(record.DR_a_cargo_DNI);
 }
 
-function getExportFilename(defaultFilename, periodSelectId) {
+function getExportFilename(defaultFilename, periodSelectId, exportType) {
     const periodSelect = document.getElementById(periodSelectId);
     const selectedPeriod = periodSelect?.selectedOptions?.[0]?.textContent?.trim();
     if (!selectedPeriod || selectedPeriod === 'Todos') return defaultFilename;
 
     const safePeriod = selectedPeriod.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '_');
-    return `${safePeriod}.xlsx`;
+    return `${safePeriod}_${exportType}.xlsx`;
 }
 
 function exportToExcel(type) {
@@ -978,7 +978,7 @@ function exportToExcel(type) {
     let filename = "";
 
     if (type === 'groups') {
-        filename = getExportFilename("Reporte_Grupos.xlsx", 'filter-group-period');
+        filename = getExportFilename("Reporte_Grupos.xlsx", 'filter-group-period', 'Grupos');
         const searchFilter = document.getElementById('filter-group-id').value.toLowerCase();
         const respFilter = document.getElementById('filter-group-resp').value;
         const periodFilter = document.getElementById('filter-group-period').value;
@@ -1023,7 +1023,7 @@ function exportToExcel(type) {
         }));
 
     } else if (type === 'dr') {
-        filename = getExportFilename("Reporte_Docentes_Remotos.xlsx", 'filter-dr-period');
+        filename = getExportFilename("Reporte_Docentes_Remotos.xlsx", 'filter-dr-period', 'DR');
         const searchFilter = document.getElementById('filter-dr-name').value.toLowerCase();
         const respFilter = document.getElementById('filter-dr-resp').value;
         const periodFilter = document.getElementById('filter-dr-period').value;
