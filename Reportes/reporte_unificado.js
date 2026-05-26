@@ -778,6 +778,34 @@ function agruparPorDR(records) {
     return map;
 }
 
+function getEstadoClaseId(clase) {
+    if (Array.isArray(clase.Estado_Clase)) return Number(clase.Estado_Clase[0]);
+    return Number(clase.ID_Estado_Clase || clase.Estado_Clase_ID);
+}
+
+function getCoordValidation(clase) {
+    return getLabel(clase.Validacion_Coord_Previa).toString().toLowerCase().trim();
+}
+
+function getExportExtraCounts(clases) {
+    return clases.reduce((acc, clase) => {
+        const estadoId = getEstadoClaseId(clase);
+        const validacionCoord = getCoordValidation(clase);
+
+        if (estadoId === 6) acc.canceladasSinAnticipacion++;
+        if (estadoId === 1 && validacionCoord === 'validada') acc.dictadasConCoord++;
+        if (estadoId === 1 && validacionCoord === 'no validada') acc.dictadasSinCoord++;
+        if (estadoId === 7) acc.factoresExternos++;
+
+        return acc;
+    }, {
+        canceladasSinAnticipacion: 0,
+        dictadasConCoord: 0,
+        dictadasSinCoord: 0,
+        factoresExternos: 0
+    });
+}
+
 function processGroupStatus(clases) {
     let originales = 0, dictadas = 0, canceladas = 0, canceladasPagas = 0, recuperadas = 0;
     clases.forEach(c => {
@@ -820,7 +848,7 @@ function processGroupStatus(clases) {
         if (lastEst !== 'dictada' && lastEst !== '') { status = 'Grupo Crítico'; badgeClass = 'badge-danger'; rowClass = 'row-critical'; priority = 1; }
         else { status = 'Grupo en Recuperación'; badgeClass = 'badge-warning'; rowClass = 'row-recovery'; priority = 2; }
     } else if (last3NotDictadas) { status = 'Grupo en Alerta'; badgeClass = 'badge-orange'; rowClass = 'row-alert'; priority = 3; }
-    return { percent, dictadas, originales, canceladas, canceladasPagas, recuperadas, recuperacion, status, badgeClass, rowClass, priority };
+    return { percent, dictadas, originales, canceladas, canceladasPagas, recuperadas, recuperacion, ...getExportExtraCounts(clases), status, badgeClass, rowClass, priority };
 }
 
 function processDRStatus(clases) {
@@ -858,7 +886,7 @@ function processDRStatus(clases) {
     if (percent < 60) { status = 'Alerta'; badgeClass = 'badge-danger'; rowClass = 'row-critical'; priority = 1; }
     else if (percent < 70) { status = 'Baja Efectividad'; badgeClass = 'badge-orange'; rowClass = 'row-alert'; priority = 2; }
     else if (percent < 80) { status = 'Efectividad Media'; badgeClass = 'badge-warning'; rowClass = 'row-recovery'; priority = 3; }
-    return { percent, dictadas, originales, canceladas, canceladasPagas, recuperadas, recuperacion, status, badgeClass, rowClass, priority, hasAlertaCancelaciones, tasaCancelacion };
+    return { percent, dictadas, originales, canceladas, canceladasPagas, recuperadas, recuperacion, ...getExportExtraCounts(clases), status, badgeClass, rowClass, priority, hasAlertaCancelaciones, tasaCancelacion };
 }
 
 function renderDoughnut(id, data, labels, colors, subtext = 'TOTAL') {
@@ -986,6 +1014,10 @@ function exportToExcel(type) {
             "Dictadas": g.dictadas,
             "Canceladas": g.canceladas,
             "Canceladas Pagas": g.canceladasPagas,
+            "canceladas s/ ant": g.canceladasSinAnticipacion,
+            "dictadas c/ coord": g.dictadasConCoord,
+            "dictadas s/ coord": g.dictadasSinCoord,
+            "fact. externos": g.factoresExternos,
             "% Rendimiento": Math.round(g.percent) + "%",
             "% Recuperación": Math.round(g.recuperacion) + "%"
         }));
@@ -1028,6 +1060,10 @@ function exportToExcel(type) {
             "Dictadas": d.dictadas,
             "Canceladas": d.canceladas,
             "Canceladas Pagas": d.canceladasPagas,
+            "canceladas s/ ant": d.canceladasSinAnticipacion,
+            "dictadas c/ coord": d.dictadasConCoord,
+            "dictadas s/ coord": d.dictadasSinCoord,
+            "fact. externos": d.factoresExternos,
             "% Rendimiento": Math.round(d.percent) + "%",
             "% Recuperación": Math.round(d.recuperacion) + "%"
         }));
