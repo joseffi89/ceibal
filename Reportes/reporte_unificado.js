@@ -757,7 +757,7 @@ function agruparPorDR(records) {
         if (r.Estado_Grupo === "Dado de baja") return;
         let name = (r.DR_a_cargo_Apellido_y_Nombre || '').toString().trim();
         if (!name || name === 'Sin Docente' || name === '-') return;
-        if (!map[name]) { map[name] = { drName: name, mentor: r.Mentor_a || '-', responsable: r.Resp_Gestion || '-', clases: [] }; }
+        if (!map[name]) { map[name] = { drName: name, dni: getDRDNI(r), mentor: r.Mentor_a || '-', responsable: r.Resp_Gestion || '-', clases: [] }; }
         map[name].clases.push(r);
     });
     Object.values(map).forEach(d => { d.clases.sort((a, b) => new Date(a.Clase || 0) - new Date(b.Clase || 0)); });
@@ -913,6 +913,19 @@ function formatearFecha(fecha) {
 
 function getLabel(val) { if (Array.isArray(val)) return val[1]; return val || '-'; }
 
+function getDRDNI(record) {
+    return getLabel(record.DR_a_cargo_DNI);
+}
+
+function getExportFilename(defaultFilename, periodSelectId) {
+    const periodSelect = document.getElementById(periodSelectId);
+    const selectedPeriod = periodSelect?.selectedOptions?.[0]?.textContent?.trim();
+    if (!selectedPeriod || selectedPeriod === 'Todos') return defaultFilename;
+
+    const safePeriod = selectedPeriod.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '_');
+    return `${safePeriod}.xlsx`;
+}
+
 function exportToExcel(type) {
     if (typeof XLSX === 'undefined') {
         alert("La librería para exportar a Excel aún se está cargando. Por favor, intenta de nuevo.");
@@ -923,7 +936,7 @@ function exportToExcel(type) {
     let filename = "";
 
     if (type === 'groups') {
-        filename = "Reporte_Grupos.xlsx";
+        filename = getExportFilename("Reporte_Grupos.xlsx", 'filter-group-period');
         const searchFilter = document.getElementById('filter-group-id').value.toLowerCase();
         const respFilter = document.getElementById('filter-group-resp').value;
         const periodFilter = document.getElementById('filter-group-period').value;
@@ -951,6 +964,7 @@ function exportToExcel(type) {
 
         dataToExport = gruposArray.map(g => ({
             "N_RUEE": g.ruee,
+            "ID_Grupo": g.idGrupo,
             "Docente": g.docente,
             "Mentor/a": g.mentor,
             "Gestión": g.responsable,
@@ -963,7 +977,7 @@ function exportToExcel(type) {
         }));
 
     } else if (type === 'dr') {
-        filename = "Reporte_Docentes_Remotos.xlsx";
+        filename = getExportFilename("Reporte_Docentes_Remotos.xlsx", 'filter-dr-period');
         const searchFilter = document.getElementById('filter-dr-name').value.toLowerCase();
         const respFilter = document.getElementById('filter-dr-resp').value;
         const periodFilter = document.getElementById('filter-dr-period').value;
@@ -993,6 +1007,7 @@ function exportToExcel(type) {
 
         dataToExport = drArray.map(d => ({
             "Docente a cargo": d.drName,
+            "DNI": d.dni,
             "Mentor/a": d.mentor,
             "Gestión": d.responsable,
             "Originales": d.originales,
