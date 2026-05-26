@@ -204,6 +204,7 @@ function updateKPIs(records, isGlobal = false) {
     let totalDictada = 0;
     let totalCanceladas = 0;
     let totalCanceladasPagas = 0;
+    let totalPagas = 0;
     let totalRecuperacion = 0;
     let totalOriginales = 0;
     let originalesDictadas = 0;
@@ -221,9 +222,15 @@ function updateKPIs(records, isGlobal = false) {
         }
 
         const estado = (estadoLabel || '').toString().toLowerCase().trim();
+        const estadoIdNum = Number(estadoId);
         const tipoClase = (r.Tipo_de_Clase || '').toString().toLowerCase().trim();
         const isOriginal = tipoClase === 'original';
         const isRecuperacion = tipoClase.includes('recuperaci') || tipoClase.includes('recuperada');
+        const isPaga = estadoIdNum === 1 || estadoIdNum === 6 || estadoIdNum === 7;
+
+        if (isPaga) {
+            totalPagas++;
+        }
 
         if (isOriginal && estado !== 'pendiente' && estado !== '') {
             totalOriginales++;
@@ -280,6 +287,7 @@ function updateKPIs(records, isGlobal = false) {
 
     const tasaRecuperacion = totalCanceladas > 0 ? ((totalRecuperacion / totalCanceladas) * 100).toFixed(1) : 0;
     const tasaDictadas = totalOriginales > 0 ? ((totalDictada / totalOriginales) * 100).toFixed(1) : 0;
+    const tasaPagasOriginales = totalOriginales > 0 ? ((totalPagas / totalOriginales) * 100).toFixed(1) : 0;
 
     animateValue('kpi-total', totalClases);
     animateValue('kpi-dictadas', totalDictada);
@@ -294,6 +302,12 @@ function updateKPIs(records, isGlobal = false) {
     
     const kpiCanceladas = document.getElementById('kpi-canceladas');
     if (kpiCanceladas) kpiCanceladas.closest('.kpi-card').title = `Canceladas Originales: ${originalesCanceladas}`;
+
+    const kpiPagasOriginales = document.getElementById('kpi-pagas-originales');
+    if (kpiPagasOriginales) {
+        kpiPagasOriginales.textContent = `${tasaPagasOriginales}%`;
+        kpiPagasOriginales.closest('.kpi-card').title = `Clases Pagas: ${totalPagas} / Originales: ${totalOriginales}`;
+    }
 
     const kpiRend = document.getElementById('kpi-tasa-dictadas');
     if (kpiRend) {
