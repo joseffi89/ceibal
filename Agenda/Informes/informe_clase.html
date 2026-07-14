@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; background: #f4f6f8; padding: 12px; color: #2c3e50; }
+    .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
+    .header-box { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 15px; }
+    h3 { margin: 0; font-size: 18px; color: #16B378; }
+    .info-clase { background: #eef2f5; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px; font-weight: 600; display: flex; flex-direction: column; gap: 4px; }
+    .actions { display: flex; justify-content: flex-end; margin-bottom: 15px; }
+    .btn-primary { background: #16B378; color: #fff; border: 0; border-radius: 8px; padding: 9px 14px; font-weight: 800; font-size: 12px; cursor: pointer; text-transform: uppercase; }
+    .btn-primary:hover { background: #129966; }
+    .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; text-transform: uppercase; font-weight: 800; }
+    .st-dictada { background: #dcfce7; color: #15803d; }
+    .st-rojo { background: #fee2e2; color: #b91c1c; }
+    .st-default { background: #e2e8f0; color: #475569; }
+    .campo { margin-bottom: 15px; display: flex; flex-direction: column; }
+    .label { font-size: 11px; font-weight: 700; margin-bottom: 4px; color: #64748b; text-transform: uppercase; }
+    .valor { padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; background: #fcfcfc; white-space: pre-wrap; color: #334155; line-height: 1.4; overflow-wrap: anywhere; }
+    .valor a { color: #16B378; text-decoration: none; font-weight: 700; }
+    .valor a:hover { text-decoration: underline; }
+    .msg { text-align: center; padding: 40px; color: #94a3b8; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="header-box">
+    <h3>Detalle del Informe</h3>
+    <div id="badgeEstado"></div>
+  </div>
+
+  <div class="info-clase">
+    <span>Grupo: <span id="grupoLabel">---</span></span>
+    <span>Clase: <span id="idLabel">---</span></span>
+  </div>
+
+  <div class="actions">
+    <button id="btnVerInforme" class="btn-primary" type="button" disabled>Ver informe</button>
+  </div>
+
+  <div id="contenido">
+    <div class="msg">Seleccione una clase para ver el detalle...</div>
+  </div>
+</div>
+
+<script src="informe_clase.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #f1f5f9; padding: 12px; color: #1e293b; margin: 0; }
+    .card { background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); max-width: 600px; margin: 0 auto; }
+    .header-main { border-bottom: 3px solid #16B378; padding-bottom: 12px; margin-bottom: 20px; }
+    .header-main h3 { margin: 0; font-size: 18px; color: #16B378; text-transform: uppercase; letter-spacing: 0.5px; }
+    .grupo-sel { font-size: 14px; font-weight: 600; color: #64748b; margin-top: 4px; }
+    .actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 16px; }
+    .btn-primary { background: #16B378; color: #fff; border: 0; border-radius: 8px; padding: 9px 14px; font-weight: 800; font-size: 12px; cursor: pointer; text-transform: uppercase; }
+    .btn-primary:hover { background: #129966; }
+    .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .btn-secondary { background: #fff; color: #475569; border: 1px solid #cbd5e1; }
+    .btn-secondary:hover { background: #f8fafc; }
+    .btn-secondary:disabled { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; }
+    .ficha { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+    .ficha-header { background: #f8fafc; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .ficha-titulo { font-size: 13px; font-weight: 800; color: #1e293b; }
+    .ficha-sub { font-size: 13px; color: #475569; font-weight: 700; margin-top: 2px; }
+    .ficha-body { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .campo-ficha { display: flex; flex-direction: column; }
+    .label-ficha { font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; }
+    .valor-ficha { font-size: 12px; color: #334155; line-height: 1.4; font-weight: 500; }
+    .valor-ficha a { color: #16B378; text-decoration: none; font-weight: 800; }
+    .badge { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; white-space: nowrap; }
+    .st-dictada { background-color: #dcfce7 !important; color: #16B378 !important; }
+    .st-rojo { background-color: #fee2e2 !important; color: #b91c1c !important; }
+    .st-default { background-color: #f1f5f9 !important; color: #475569 !important; }
+    .full-width { grid-column: 1 / span 2; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid #f1f5f9; }
+    .msg-pendiente { background: #fff9eb; color: #9a6700; border: 1px dashed #ffe4a3; grid-column: 1 / span 2; padding: 10px; text-align: center; font-size: 11px; }
+    .empty-val { color: #cbd5e1; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header-main">
+      <h3>Historial de Clases</h3>
+      <div class="grupo-sel" id="grupoLabel">Cargando...</div>
+    </div>
+    <div class="actions">
+      <button id="btnUltimoMes" class="btn-primary" type="button" disabled>Ultimo mes</button>
+      <button id="btnHistorialCompleto" class="btn-primary btn-secondary" type="button" disabled>Historial completo</button>
+    </div>
+    <div id="historialContenido"></div>
+  </div>
+
+  <script src="historial_clases.js"></script>
+</body>
+</html>

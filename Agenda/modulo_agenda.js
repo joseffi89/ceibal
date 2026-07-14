@@ -8,6 +8,12 @@ let idGrupoRec = null;
 let esFechaFutura = false;
 let eventosFeriados = [];
 let eventosClases = [];
+let cacheInformes = null;
+let informeByClaseId = new Map();
+let informesByGrupo = new Map();
+let canceladasByGrupo = new Map();
+let recuperadasByGrupo = new Map();
+let cancelacionesRestringidasPorGrupoSemana = new Map();
 
 const opcionesManuales = { 
     'Plataforma': ['Jabber', 'Webex', 'Meet/Zoom', 'Conferences'], 
@@ -16,6 +22,83 @@ const opcionesManuales = {
     'Etapa': [] 
 };
 let motivosPorEstado = { "4": [], "5": [], "6": [], "7": [] };
+
+function normalizeRefId(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizeRefLabel(value) {
+  return Array.isArray(value) ? value[1] : value;
+}
+
+function mapKey(value) {
+  const normalized = normalizeRefId(value);
+  return normalized === null || normalized === undefined ? '' : String(normalized);
+}
+
+function getGrupoId(record) {
+  return normalizeRefId(record?.ID_Grupo_Grupo) ?? normalizeRefId(record?.ID_Grupo) ?? record?.id;
+}
+
+function getSemanaKey(grupoId, semana) {
+  return `${mapKey(grupoId)}|${semana ?? ''}`;
+}
+
+function tableRowToObject(table, idx) {
+  const row = {};
+  Object.keys(table || {}).forEach(key => {
+    row[key] = table[key]?.[idx];
+  });
+  return row;
+}
+
+function setCacheInformes(table) {
+  cacheInformes = table;
+  informeByClaseId = new Map();
+  informesByGrupo = new Map();
+  canceladasByGrupo = new Map();
+
+  const ids = table?.id || [];
+  ids.forEach((_, idx) => {
+    const claseId = normalizeRefId(table.ID_Clase?.[idx]);
+    if (claseId !== null && claseId !== undefined) {
+      informeByClaseId.set(String(claseId), tableRowToObject(table, idx));
+    }
+
+    const grupoId = normalizeRefId(table.ID_Grupo?.[idx]);
+    const grupo = mapKey(grupoId);
+    if (grupo) {
+      if (!informesByGrupo.has(grupo)) informesByGrupo.set(grupo, []);
+      informesByGrupo.get(grupo).push(idx);
+    }
+
+    const estadoId = Number(normalizeRefId(table.Estado_Clase_ID?.[idx]));
+    if (grupo && [4, 5, 6, 7].includes(estadoId)) {
+      canceladasByGrupo.set(grupo, (canceladasByGrupo.get(grupo) || 0) + 1);
+    }
+  });
+}
+
+function rebuildAgendaCaches(records) {
+  recuperadasByGrupo = new Map();
+  cancelacionesRestringidasPorGrupoSemana = new Map();
+
+  (records || []).forEach(r => {
+    const grupoId = getGrupoId(r);
+    const grupo = mapKey(grupoId);
+    if (!grupo) return;
+
+    if (r.Tipo_de_Clase === "Recuperación") {
+      recuperadasByGrupo.set(grupo, (recuperadasByGrupo.get(grupo) || 0) + 1);
+    }
+
+    const estadoId = Number(normalizeRefId(r.Estado_Clase_ID));
+    if ([6, 7].includes(estadoId)) {
+      const key = getSemanaKey(grupoId, r.Clase_Semana);
+      cancelacionesRestringidasPorGrupoSemana.set(key, (cancelacionesRestringidasPorGrupoSemana.get(key) || 0) + 1);
+    }
+  });
+}
 
 /**
  * CONFIGURACIÓN DINÁMICA DE FORMULARIOS
@@ -55,9 +138,16 @@ const configForm = {
  */
 async function inicializar() {
   initCalendar();
-  await cargarDesplegables();
-  await cargarEstados();
-  await cargarCalendarioFeriados();
+  if (typeof grist !== 'undefined') {
+    await Promise.all([
+      grist.docApi.fetchTable("Informe")
+        .then(setCacheInformes)
+        .catch(e => console.warn("Error cargando caché Informe:", e)),
+      cargarDesplegables(),
+      cargarEstados(),
+      cargarCalendarioFeriados()
+    ]);
+  }
   
   // ⚠️ CORRECCIÓN: Vincular eventos después de que el DOM esté listo
   const btnInforme = document.getElementById('btnAbrirInforme');
@@ -200,45 +290,24 @@ function formatearValorHistorial(val, campoNombre) {
  * HISTORIAL DE CLASES
  */
 async function abrirHistorial() {
-    console.log('👁️ abrirHistorial() - INICIO');
-    console.log('📦 recordClase:', recordClase);
-    
     if (!recordClase) {
-        console.error('❌ recordClase es null');
         return;
     }
     
-    const grupoId = recordClase.ID_Grupo_Grupo || recordClase.ID_Grupo || recordClase.id;
-    console.log('🔍 grupoId a buscar:', grupoId);
-    
+    const grupoId = getGrupoId(recordClase);
     document.getElementById("grupoHistorialLabel").textContent = recordClase.ID_Grupo_display || recordClase.ID_Grupo || "Grupo " + grupoId;
     document.getElementById('modalHistorial').style.display = 'flex';
     
     try {
-        console.log('📡 Intentando fetchTable("Informe")...');
-        const informes = await grist.docApi.fetchTable("Informe");
-        
-        console.log('✅ Tabla Informe cargada');
-        console.log('📊 Columnas disponibles:', Object.keys(informes));
-        console.log('📊 Cantidad de registros:', informes.id ? informes.id.length : 0);
-        
-        if (informes.ID_Grupo) {
-            console.log('📊 Primeros 3 ID_Grupo:', informes.ID_Grupo.slice(0, 3));
+        if (!cacheInformes) {
+            setCacheInformes(await grist.docApi.fetchTable("Informe"));
         }
+        const informes = cacheInformes;
         
         const contenedor = document.getElementById("historialContenido");
         contenedor.innerHTML = "";
         
-        let indicesInformes = [];
-        if (informes.ID_Grupo) {
-            informes.ID_Grupo.forEach((g, i) => {
-                const currentG = Array.isArray(g) ? g[0] : g;
-                if (currentG === grupoId) indicesInformes.push(i);
-            });
-        }
-        
-        console.log(`🔍 Encontrados ${indicesInformes.length} informes para este grupo`);
-        console.log('📋 Indices:', indicesInformes);
+        let indicesInformes = [...(informesByGrupo.get(mapKey(grupoId)) || [])];
         
         if (indicesInformes.length === 0) {
             contenedor.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8;"><i class="fa-solid fa-inbox fa-2x" style="margin-bottom:10px; display:block;"></i>No hay informes cargados para este grupo</div>';
@@ -252,15 +321,13 @@ async function abrirHistorial() {
             return fechaB - fechaA;
         });
         
-        indicesInformes.forEach(infIdx => {
+        const htmlHistorial = indicesInformes.map(infIdx => {
             // ... (mantené todo el código de renderizado existente)
             const fechaClase = informes.Clase[infIdx];
             const tipoClase = informes.Tipo_de_Clase[infIdx] || 'Clase';
-            const drNombre = Array.isArray(informes.DR_a_cargo_Apellido_y_Nombre[infIdx])
-                ? informes.DR_a_cargo_Apellido_y_Nombre[infIdx][1]
-                : informes.DR_a_cargo_Apellido_y_Nombre[infIdx];
+            const drNombre = normalizeRefLabel(informes.DR_a_cargo_Apellido_y_Nombre[infIdx]);
             const estadoId = informes.Estado_Clase_ID
-                ? Number(Array.isArray(informes.Estado_Clase_ID[infIdx]) ? informes.Estado_Clase_ID[infIdx][0] : informes.Estado_Clase_ID[infIdx])
+                ? Number(normalizeRefId(informes.Estado_Clase_ID[infIdx]))
                 : 0;
             
             let horaMostrar = '--:--';
@@ -278,8 +345,7 @@ async function abrirHistorial() {
                 camposVisualizar = ["Propuesta", "Etapa", "Evidencia", "Tema_Tratado", "Notas_Pedagogicas", "Notas_Complementarias", "Coordinacion_con_DA"];
                 badgeClass = "st-dictada";
                 if (informes.Plataforma && informes.Plataforma[infIdx]) {
-                    let plat = informes.Plataforma[infIdx];
-                    textoBadge = `Dictada - ${Array.isArray(plat) ? plat[1] : plat}`;
+                    textoBadge = `Dictada - ${normalizeRefLabel(informes.Plataforma[infIdx])}`;
                 }
             } else if ([4, 5, 6, 7].includes(estadoId)) {
                 camposVisualizar = ["Motivo", "Evidencia", "Notas_Complementarias", "Coordinacion_con_DA"];
@@ -310,12 +376,12 @@ async function abrirHistorial() {
             });
             
             html += `</div></div>`;
-            contenedor.insertAdjacentHTML("beforeend", html);
-        });
+            return html;
+        }).join('');
+
+        contenedor.innerHTML = htmlHistorial;
         
     } catch (e) {
-        console.error('💥 ERROR en abrirHistorial:', e);
-        console.error('Stack:', e.stack);
         alert('Error al cargar historial: ' + e.message);
     }
 }
@@ -369,9 +435,11 @@ async function cargarCalendarioFeriados() {
 
 function refrescarCalendario() { 
     if (calendar) {
-      calendar.removeAllEvents(); 
-      calendar.addEventSource(eventosClases); 
-      calendar.addEventSource(eventosFeriados); 
+      calendar.batchRendering(() => {
+        calendar.removeAllEvents(); 
+        calendar.addEventSource(eventosClases); 
+        calendar.addEventSource(eventosFeriados); 
+      });
     }
 }
 
@@ -383,13 +451,15 @@ async function cargarEstados() {
   const sel = document.getElementById('estadoSelect');
   if (!sel) return;
   
-  sel.innerHTML = '<option value="">Seleccione estado...</option>';
+  const options = ['<option value="">Seleccione estado...</option>'];
+  const estadosById = new Map((estados.id || []).map((id, idx) => [id, estados.Estado?.[idx]]));
   [1, 6, 4, 5, 7].forEach(id => {
-    const idx = estados.id?.indexOf(id);
-    if(idx !== -1 && estados.Estado?.[idx]) {
-      sel.innerHTML += `<option value="${id}">${estados.Estado[idx]}</option>`;
+    const estado = estadosById.get(id);
+    if(estado) {
+      options.push(`<option value="${id}">${estado}</option>`);
     }
   });
+  sel.innerHTML = options.join('');
 }
 
 async function cargarDesplegables() {
@@ -416,17 +486,15 @@ async function renderDetail(record) {
   if (actionsArea) actionsArea.style.display = 'flex';
   
   try {
-    const informes = await grist.docApi.fetchTable('Informe');
-    const idx = informes.ID_Clase ? informes.ID_Clase.indexOf(record.id) : -1;
+    if (!cacheInformes) {
+      setCacheInformes(await grist.docApi.fetchTable('Informe'));
+    }
+    informeExistente = informeByClaseId.get(String(record.id)) || null;
     
     const btnInforme = document.getElementById('btnAbrirInforme');
     const txtBtn = document.getElementById('txtBtnInforme');
     
-    if (idx !== -1 && informes.Estado) {
-      informeExistente = {};
-      Object.keys(informes).forEach(key => { 
-        informeExistente[key] = informes[key]?.[idx]; 
-      });
+    if (informeExistente && informeExistente.Estado) {
       if (txtBtn) txtBtn.textContent = "Ver/Editar Informe";
       if (btnInforme) btnInforme.classList.add('btn-edit');
     } else {
@@ -436,10 +504,17 @@ async function renderDetail(record) {
     }
   } catch(e) { console.warn("Error verificando informe existente:", e); }
 
-  idGrupoRec = Array.isArray(record.ID_Grupo_Grupo) ? record.ID_Grupo_Grupo[0] : record.ID_Grupo_Grupo;
+  idGrupoRec = getGrupoId(record);
+
+  const grupo = mapKey(idGrupoRec);
+  const canLocal = canceladasByGrupo.get(grupo) || 0;
+  const recLocal = recuperadasByGrupo.get(grupo) || 0;
+
+  record.Clases_Canceladas = canLocal;
+  record.Clases_Recuperadas = recLocal;
 
   let leyendaRecuperacion = "";
-  const esCancelada = [4, 5, 6, 7].includes(Number(record.Estado_Clase_ID));
+  const esCancelada = [4, 5, 6, 7].includes(Number(normalizeRefId(record.Estado_Clase_ID)));
   if (record.Tipo_de_Clase === "Recuperación") {
     leyendaRecuperacion = `<span class="val-rec-info"><i class="fa-solid fa-link"></i> ${record.Recuperacion || ''}</span>`;
   } else if (esCancelada) {
@@ -501,12 +576,13 @@ function validarRecuperacion() {
   if (!inputFecha || !errorDiv || !btnGenerar) return;
   
   const can = recordClase.Clases_Canceladas || 0, rec = recordClase.Clases_Recuperadas || 0;
-  const esCancelada = [4, 5, 6, 7].includes(Number(recordClase.Estado_Clase_ID));
+  const estadoClaseId = Number(normalizeRefId(recordClase.Estado_Clase_ID));
+  const esCancelada = [4, 5, 6, 7].includes(estadoClaseId);
   const tieneCupo = can > 0 && rec < can;
   const yaRecuperada = esCancelada && recordClase.Recuperacion && recordClase.Recuperacion.includes("a recuperar");
   
   let msg = "", err = false;
-  if (Number(recordClase.Estado_Clase_ID) === 1) { msg = 'No se pueden recuperar clases dictadas.'; err = true; }
+  if (estadoClaseId === 1) { msg = 'No se pueden recuperar clases dictadas.'; err = true; }
   else if (!esCancelada) { msg = 'Solo se pueden recuperar clases canceladas.'; err = true; }
   else if (yaRecuperada) { msg = 'Esta clase ya fue recuperada.'; err = true; }
   else if (!tieneCupo) { msg = 'No hay clases a recuperar.'; err = true; }
@@ -553,7 +629,7 @@ async function generarClaseRecuperada() {
           Hora_Desde: raw[1], 
           Tipo_de_Clase: "Recuperación", 
           Recuperacion: `Clase original ${fOrig}`,
-          Estado_Clase_Original_ID: Number(recordClase.Estado_Clase_ID)
+          Estado_Clase_Original_ID: Number(normalizeRefId(recordClase.Estado_Clase_ID))
       }],
       [ "UpdateRecord", "Agenda", recordClase.id, { Recuperacion: `Clase a recuperar el ${fNueva}` }]
     ]);
@@ -597,20 +673,12 @@ async function prepararModalInforme() {
     document.getElementById('infoHora').innerHTML = `<i class="fa-regular fa-clock"></i> ${recordClase?.Hora_Desde || '--:--'} hs`;
   }
 
-  // Verificar restricciones semanales
-  let yaExisteCancelacionSemanal = false;
-  try {
-    const agenda = await grist.docApi.fetchTable('Agenda');
-    const grupoIdActual = recordClase.ID_Grupo_Grupo || recordClase.ID_Grupo;
-    const semanaActual = recordClase.Clase_Semana;
-    
-    yaExisteCancelacionSemanal = agenda.id?.some((id, i) => {
-        const mismoGrupo = (Array.isArray(agenda.ID_Grupo?.[i]) ? agenda.ID_Grupo[i][0] : agenda.ID_Grupo?.[i]) === (Array.isArray(grupoIdActual) ? grupoIdActual[0] : grupoIdActual);
-        const mismaSemana = agenda.Clase_Semana?.[i] === semanaActual;
-        const esEstadoRestringido = [6, 7].includes(Number(agenda.Estado_Clase_ID?.[i]));
-        return id !== recordClase.id && mismoGrupo && mismaSemana && esEstadoRestringido;
-    });
-  } catch(e) { console.warn("Error verificando restricciones:", e); }
+  // Verificar restricciones semanales usando caché local en lugar de fetchTable
+  const grupoIdActual = getGrupoId(recordClase);
+  const semanaActual = recordClase.Clase_Semana;
+  const estadoActual = Number(normalizeRefId(recordClase.Estado_Clase_ID));
+  const cancelacionesMismaSemana = cancelacionesRestringidasPorGrupoSemana.get(getSemanaKey(grupoIdActual, semanaActual)) || 0;
+  const yaExisteCancelacionSemanal = cancelacionesMismaSemana > ([6, 7].includes(estadoActual) ? 1 : 0);
 
   // Si hay informe existente, cargar valores
   if (informeExistente && informeExistente.Estado) {
@@ -619,9 +687,8 @@ async function prepararModalInforme() {
     // ⚠️ CORRECCIÓN: Generar campos PRIMERO, luego poblar valores
     generarCamposDinamicos(sel.value);
     
-    setTimeout(() => {
-      const config = configForm[sel.value] || [];
-      config.forEach(c => {
+    const config = configForm[sel.value] || [];
+    config.forEach(c => {
         const el = document.getElementById(c.id); 
         if(!el) return;
         
@@ -643,9 +710,8 @@ async function prepararModalInforme() {
         }
         if (estaBloqueado) el.disabled = true;
       });
-      actualizarVisibilidad();
-      validarBoton();
-    }, 100);
+    actualizarVisibilidad();
+    validarBoton();
   } else { 
     sel.value = ""; 
     const dynamicForm = document.getElementById('dynamicForm');
@@ -656,7 +722,7 @@ async function prepararModalInforme() {
 
   // Aplicar restricciones en las opciones del select
   const esRecuperada = recordClase?.Tipo_de_Clase === "Recuperación";
-  const estadoOriginal = recordClase?.Estado_Clase_Original_ID || recordClase?.Estado_Clase_ID; 
+  const estadoOriginal = normalizeRefId(recordClase?.Estado_Clase_Original_ID) || normalizeRefId(recordClase?.Estado_Clase_ID); 
   const aplicaRestriccionRecup = esRecuperada && [6, 7].includes(Number(estadoOriginal));
 
   for (let i = 0; i < sel.options.length; i++) {
@@ -734,7 +800,7 @@ function validarBoton() {
 
   // Validación de seguridad para clases recuperadas
   const esRec = recordClase?.Tipo_de_Clase === "Recuperación";
-  const estOrig = recordClase?.Estado_Clase_Original_ID || recordClase?.Estado_Clase_ID;
+  const estOrig = normalizeRefId(recordClase?.Estado_Clase_Original_ID) || normalizeRefId(recordClase?.Estado_Clase_ID);
   const estadoSeleccionado = Number(st);
 
   if (esRec && [6, 7].includes(Number(estOrig)) && [6, 7].includes(estadoSeleccionado)) {
@@ -823,6 +889,12 @@ async function enviarInforme() {
       await grist.docApi.applyUserActions([["AddRecord", "Informe", null, data]]);
     }
     
+    try {
+      setCacheInformes(await grist.docApi.fetchTable("Informe"));
+    } catch(e) {
+      console.warn("Error refrescando caché Informe:", e);
+    }
+    
     cerrarModal('modalInforme');
     btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Enviar Informe';
     if(recordClase) renderDetail(recordClase);
@@ -840,7 +912,8 @@ async function enviarInforme() {
  * UTILITARIOS
  */
 function getColorEstado(id) { 
-  return id == 1 ? '#16B378' : ([2,4,5,6,7].includes(Number(id)) ? '#ef4444' : '#94a3b8'); 
+  const estadoId = normalizeRefId(id);
+  return estadoId == 1 ? '#16B378' : ([2,4,5,6,7].includes(Number(estadoId)) ? '#ef4444' : '#94a3b8'); 
 }
 
 function formatDate(v) { 
@@ -854,7 +927,9 @@ function formatDate(v) {
  */
 if (typeof grist !== 'undefined') {
   grist.onRecords((records) => {
-    eventosClases = records.filter(r => r.Tipo_Dia === "Hábil" || r.Tipo_Dia === "Feriado").map(r => {
+    const agendaRecords = records || [];
+    rebuildAgendaCaches(agendaRecords);
+    eventosClases = agendaRecords.filter(r => r.Tipo_Dia === "Hábil" || r.Tipo_Dia === "Feriado").map(r => {
       const d = new Date(typeof r.Clase === 'number' ? r.Clase * 1000 : r.Clase);
       let s = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
       
