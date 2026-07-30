@@ -1,5 +1,85 @@
 let periodsData = [];
 
+function normalizeRefValue(value) {
+  return Array.isArray(value) ? value[1] : value;
+}
+
+function normalizeRefId(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizeKey(value) {
+  const normalized = normalizeRefValue(value);
+  return normalized === null || normalized === undefined ? "" : String(normalized).trim().toLowerCase();
+}
+
+function getColumnValue(table, columnName, index) {
+  return table && table[columnName] ? table[columnName][index] : undefined;
+}
+
+function getFirstColumnValue(table, columnNames, index) {
+  for (const columnName of columnNames) {
+    const value = getColumnValue(table, columnName, index);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function isValue(value, expectedValues) {
+  const normalized = normalizeRefValue(value);
+  if (typeof normalized === "boolean") return expectedValues.includes(normalized);
+  return expectedValues.includes(String(normalized || "").trim().toLowerCase());
+}
+
+function getDRNameFromRow(table, index) {
+  return getFirstColumnValue(table, [
+    "DR_Apellido_y_Nombre",
+    "DR_a_cargo_Apellido_y_Nombre",
+    "DR_a_cargo",
+    "Docente_Remoto",
+    "DR"
+  ], index);
+}
+
+function buildInfrastructureCountMap(assignmentsData, availabilityData) {
+  const countMap = {};
+
+  (assignmentsData.id || []).forEach((_, i) => {
+    const estadoGrupo = getColumnValue(assignmentsData, "Estado_Grupo", i);
+    if (!isValue(estadoGrupo, ["asignado"])) return;
+
+    const drKey = normalizeKey(getDRNameFromRow(assignmentsData, i));
+    if (drKey) countMap[drKey] = (countMap[drKey] || 0) + 1;
+  });
+
+  (availabilityData.id || []).forEach((_, i) => {
+    const drKey = normalizeKey(getDRNameFromRow(availabilityData, i));
+    if (!drKey) return;
+
+    const habilitado = getFirstColumnValue(availabilityData, [
+      "Habilitado",
+      "Estado_Habilitacion",
+      "Estado_de_Habilitacion"
+    ], i);
+    const libre = getFirstColumnValue(availabilityData, [
+      "Libre",
+      "Estado",
+      "Estado_Disponibilidad",
+      "Estado_Horario",
+      "Estado_del_Horario",
+      "Situacion",
+      "Situacion_Horario"
+    ], i);
+
+    const isHabilitado = habilitado === undefined ? true : isValue(habilitado, ["habilitado", true]);
+    const isLibre = isValue(libre, ["libre", true]);
+
+    if (isHabilitado && isLibre) countMap[drKey] = (countMap[drKey] || 0) + 1;
+  });
+
+  return countMap;
+}
+
 // Inicialización de Grist
 grist.ready({ requiredAccess: 'full' });
 
@@ -44,32 +124,21 @@ async function processLiquidation() {
   try {
     // 1. Traer datos necesarios
     const agendaData = await grist.docApi.fetchTable('Agenda');
-    const dispData = await grist.docApi.fetchTable('Disponibilidad');
+    const asignacionesData = await grist.docApi.fetchTable('Asignaciones').catch(() => ({ id: [] }));
+    const dispData = await grist.docApi.fetchTable('Disponibilidad').catch(() => ({ id: [] }));
     
     // 1.1 Mapear ID de DR a su nombre desde la propia tabla Agenda
     const drIdToName = {};
     if (agendaData.DR_a_cargo && agendaData.DR_a_cargo_Apellido_y_Nombre) {
       agendaData.id.forEach((id, i) => {
-        const drId = Array.isArray(agendaData.DR_a_cargo[i]) ? agendaData.DR_a_cargo[i][0] : agendaData.DR_a_cargo[i];
-        let drName = agendaData.DR_a_cargo_Apellido_y_Nombre[i];
-        if (Array.isArray(drName)) drName = drName[1];
+        const drId = normalizeRefId(agendaData.DR_a_cargo[i]);
+        const drName = normalizeRefValue(agendaData.DR_a_cargo_Apellido_y_Nombre[i]);
         if (drId && drName) drIdToName[drId] = drName;
       });
     }
 
-    // 1.2 Contar disponibilidad por nombre de DR
-    const dispCountByName = {};
-    if (dispData.DR_Apellido_y_Nombre) {
-      dispData.DR_Apellido_y_Nombre.forEach((name, i) => {
-        let n = name;
-        if (Array.isArray(n)) n = n[1];
-        // Solo contar si está Habilitado
-        const isHabilitado = dispData.Habilitado ? dispData.Habilitado[i] === "Habilitado" : true;
-        if (n && isHabilitado) {
-          dispCountByName[n] = (dispCountByName[n] || 0) + 1;
-        }
-      });
-    }
+    // 1.2 Contar asignaciones Asignadas + horarios Libres y Habilitados por DR
+    const infrastructureCountByName = buildInfrastructureCountMap(asignacionesData, dispData);
 
     // 2. Agrupar totales por DR
     const totalsByDR = {};
@@ -109,17 +178,17 @@ async function processLiquidation() {
     // Acción B: Generar liquidaciones
     for (const drId in totalsByDR) {
       const drName = drIdToName[drId];
-      const dispCount = dispCountByName[drName] || 0;
+      const infrastructureCount = infrastructureCountByName[normalizeKey(drName)] || 0;
       let adicional = 0;
 
       if (periodLower.includes("marzo")) {
         // Marzo: Mínimo 5 horas
-        if (dispCount >= 5) adicional = 28;
+        if (infrastructureCount >= 5) adicional = 28;
       } else if (periodLower.includes("abril") || periodLower.includes("mayo") || periodLower.includes("junio") || 
                  periodLower.includes("julio") || periodLower.includes("agosto") || periodLower.includes("septiembre") || 
                  periodLower.includes("setiembre") || periodLower.includes("octubre")) {
         // Abril a Octubre: Mínimo 8 horas
-        if (dispCount >= 8) adicional = 28;
+        if (infrastructureCount >= 8) adicional = 28;
       } else {
         // Noviembre en adelante o no especificado: No se cobra
         adicional = 0;

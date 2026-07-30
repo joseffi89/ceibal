@@ -2,7 +2,7 @@ let allRecords = [];
 let periodDetails = {};
 let liqStatusMap = {};
 let liqTotalMap = {};
-let dispCountMap = {};
+let infrastructureCountMap = {};
 let selectedPeriod = null;
 let currentDR = null;
 let isInitialized = false;
@@ -23,6 +23,82 @@ function formatDate(val) {
 
 function buildIDLiq(periodo, dr) {
   return `${periodo} - ${dr}`;
+}
+
+function normalizeRefValue(value) {
+  return Array.isArray(value) ? value[1] : value;
+}
+
+function normalizeKey(value) {
+  const normalized = normalizeRefValue(value);
+  return normalized === null || normalized === undefined ? "" : String(normalized).trim().toLowerCase();
+}
+
+function getColumnValue(table, columnName, index) {
+  return table && table[columnName] ? table[columnName][index] : undefined;
+}
+
+function getFirstColumnValue(table, columnNames, index) {
+  for (const columnName of columnNames) {
+    const value = getColumnValue(table, columnName, index);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function isValue(value, expectedValues) {
+  const normalized = normalizeRefValue(value);
+  if (typeof normalized === "boolean") return expectedValues.includes(normalized);
+  return expectedValues.includes(String(normalized || "").trim().toLowerCase());
+}
+
+function getDRNameFromRow(table, index) {
+  return getFirstColumnValue(table, [
+    "DR_Apellido_y_Nombre",
+    "DR_a_cargo_Apellido_y_Nombre",
+    "DR_a_cargo",
+    "Docente_Remoto",
+    "DR"
+  ], index);
+}
+
+function buildInfrastructureCountMap(assignmentsData, availabilityData) {
+  const countMap = {};
+
+  (assignmentsData.id || []).forEach((_, i) => {
+    const estadoGrupo = getColumnValue(assignmentsData, "Estado_Grupo", i);
+    if (!isValue(estadoGrupo, ["asignado"])) return;
+
+    const drKey = normalizeKey(getDRNameFromRow(assignmentsData, i));
+    if (drKey) countMap[drKey] = (countMap[drKey] || 0) + 1;
+  });
+
+  (availabilityData.id || []).forEach((_, i) => {
+    const drKey = normalizeKey(getDRNameFromRow(availabilityData, i));
+    if (!drKey) return;
+
+    const habilitado = getFirstColumnValue(availabilityData, [
+      "Habilitado",
+      "Estado_Habilitacion",
+      "Estado_de_Habilitacion"
+    ], i);
+    const libre = getFirstColumnValue(availabilityData, [
+      "Libre",
+      "Estado",
+      "Estado_Disponibilidad",
+      "Estado_Horario",
+      "Estado_del_Horario",
+      "Situacion",
+      "Situacion_Horario"
+    ], i);
+
+    const isHabilitado = habilitado === undefined ? true : isValue(habilitado, ["habilitado", true]);
+    const isLibre = isValue(libre, ["libre", true]);
+
+    if (isHabilitado && isLibre) countMap[drKey] = (countMap[drKey] || 0) + 1;
+  });
+
+  return countMap;
 }
 
 async function loadData() {
@@ -74,17 +150,9 @@ async function loadData() {
       }
     }
 
-    const tableDisp = await grist.docApi.fetchTable('Disponibilidad');
-    dispCountMap = {};
-    if (tableDisp.DR_Apellido_y_Nombre) {
-      tableDisp.DR_Apellido_y_Nombre.forEach((name, i) => {
-        let n = name;
-        if (Array.isArray(n)) n = n[1];
-        // Solo contar si está Habilitado
-        const isHabilitado = tableDisp.Habilitado ? tableDisp.Habilitado[i] === "Habilitado" : true;
-        if (n && isHabilitado) dispCountMap[n] = (dispCountMap[n] || 0) + 1;
-      });
-    }
+    const tableAsignaciones = await grist.docApi.fetchTable('Asignaciones').catch(() => ({ id: [] }));
+    const tableDisp = await grist.docApi.fetchTable('Disponibilidad').catch(() => ({ id: [] }));
+    infrastructureCountMap = buildInfrastructureCountMap(tableAsignaciones, tableDisp);
 
     isInitialized = true;
 
@@ -285,17 +353,17 @@ function renderDetail(period) {
   const periodLower = period.toLowerCase();
   let adicionalUSD = 0;
   let adicionalNombre = "";
-  const dispCount = dispCountMap[currentDR] || 0;
+  const infrastructureCount = infrastructureCountMap[normalizeKey(currentDR)] || 0;
 
   if (periodLower.includes("marzo")) {
     // Marzo: Mínimo 5 horas
-    if (dispCount >= 5) adicionalUSD = 28;
+    if (infrastructureCount >= 5) adicionalUSD = 28;
     adicionalNombre = "Adicional por infraestructura y capacitación";
   } else if (periodLower.includes("abril") || periodLower.includes("mayo") || periodLower.includes("junio") ||
     periodLower.includes("julio") || periodLower.includes("agosto") || periodLower.includes("septiembre") ||
     periodLower.includes("setiembre") || periodLower.includes("octubre")) {
     // Abril a Octubre: Mínimo 8 horas
-    if (dispCount >= 8) adicionalUSD = 28;
+    if (infrastructureCount >= 8) adicionalUSD = 28;
     adicionalNombre = "Adicional por infraestructura";
   } else {
     // Noviembre en adelante o no especificado: No se cobra
