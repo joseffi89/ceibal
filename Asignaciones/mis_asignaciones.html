@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    
+    :root {
+      --grist-green: #16a34a;
+      --grist-red: #dc2626;
+      --grist-yellow: #fef08a;
+      --text-main: #1e293b;
+      --text-sub: #64748b;
+      --border: #e2e8f0;
+      --bg-light: #f8fafc;
+      --sidebar-width: 220px;
+      --action-width: 420px;
+    }
+
+    body { font-family: 'Inter', sans-serif; color: var(--text-main); margin: 0; padding: 0; background: #fff; overflow: hidden; }
+    .main-layout { display: flex; height: 100vh; position: relative; }
+
+    /* --- SIDEBAR --- */
+    .sidebar { width: var(--sidebar-width); background: var(--bg-light); border-right: 1px solid var(--border); overflow-y: auto; padding: 15px 10px; z-index: 10; }
+    .sidebar-title { font-size: 0.6rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+    .subject-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 12px; padding: 3px; background: #e2e8f0; border-radius: 8px; }
+    .subject-tab { border: 0; border-radius: 6px; background: transparent; color: #64748b; cursor: pointer; font-family: inherit; font-size: 0.7rem; font-weight: 800; line-height: 1.1; padding: 7px 4px; transition: all 0.2s; }
+    .subject-tab:hover { color: var(--text-main); background: rgba(255,255,255,0.55); }
+    .subject-tab.active { background: white; color: var(--grist-green); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12); }
+    .subject-count { display: block; color: #94a3b8; font-size: 0.62rem; font-weight: 700; margin-top: 2px; }
+    .subject-tab.active .subject-count { color: #16a34a; }
+    .empty-list { color: #94a3b8; font-size: 0.78rem; line-height: 1.4; padding: 12px 8px; text-align: center; }
+    .group-item { display: block; width: 100%; padding: 8px 12px; margin-bottom: 4px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.8rem; font-weight: 600; color: #475569; text-align: left; background: transparent; transition: all 0.2s; border: 1px solid transparent; }
+    .group-item:hover { background: #f1f5f9; color: var(--grist-green); }
+    .group-item.active { background: white; color: var(--grist-green); border-color: var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    
+    .item-asignado { border-left: 4px solid var(--grist-green) !important; }
+    .item-rojo { border-left: 4px solid var(--grist-red) !important; }
+    .item-pre { border-left: 4px solid #eab308 !important; }
+    .item-baja { border-left: 4px solid #8725FB !important; }
+    .item-no-asignado { border-left: 4px solid #888888 !important; }
+
+    /* --- DETALLE CENTRAL --- */
+    .detail-view { flex: 1; overflow-y: auto; padding: 25px; background: white; position: relative; }
+    .container { width: 100%; max-width: 650px; margin: 0 auto; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; position: relative; }
+    
+    .fab-container { position: absolute; top: 15px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 5; }
+    .fab-btn { background: grey; color: white; border: none; padding: 8px 16px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; cursor: pointer; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.3); transition: transform 0.2s; }
+    .fab-btn:hover { transform: scale(1.05); background: var(--grist-green); }
+    .btn-blue { background: #2563eb; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3); }
+    .btn-blue:hover { background: #1d4ed8; }
+
+    .header { background: var(--bg-light); padding: 18px 25px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .header h3 { font-size: 1.2rem; margin: 0; }
+    .status-badge { font-size: 0.7rem; font-weight: 700; padding: 5px 12px; border-radius: 6px; text-transform: uppercase; }
+    
+    .status-asignado { background: #dcfce7; color: #166534; }
+    .status-rojo { background: #fee2e2; color: #991b1b; }
+    .status-pre { background: var(--grist-yellow); color: #854d0e; }
+    .status-baja { background: #8725FB; color: white; }
+    .status-no-asignado { background: #888888; color: white; }
+    .status-default { background: #f1f5f9; color: #475569; }
+
+    .content-grid { display: grid; grid-template-columns: 1fr 1fr; background: var(--border); gap: 1px; }
+    section { background: white; padding: 20px 25px; }
+    .section-title { font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 800; margin-bottom: 12px; display: block; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px; }
+    .data-row { margin-bottom: 10px; }
+    .label { font-size: 0.65rem; font-weight: 600; color: var(--text-sub); text-transform: uppercase; display: block; margin-bottom: 2px; }
+    .val { font-size: 1rem; font-weight: 500; }
+    .highlight-green { color: var(--grist-green); font-weight: 700; }
+    .aula-link { color: var(--grist-green); text-decoration: none; font-weight: 600; }
+    .aula-link:hover { text-decoration: underline; }
+
+    /* --- PANEL DE ACCIÓN --- */
+    .action-panel { position: absolute; right: -450px; top: 0; height: 100%; width: var(--action-width); background: var(--bg-light); border-left: 1px solid var(--border); box-shadow: -5px 0 15px rgba(0,0,0,0.05); transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1); padding: 20px; z-index: 100; box-sizing: border-box; overflow-y: auto; }
+    .action-panel.open { right: 0; }
+    .close-panel { position: absolute; top: 15px; left: 15px; background: none; border: none; font-size: 1.2rem; color: #94a3b8; cursor: pointer; padding: 5px; z-index: 101; }
+    .card-action { background: white; border-radius: 12px; padding: 20px; border: 1px solid var(--border); box-shadow: 0 4px 6px rgba(0,0,0,0.02); margin-top: 30px; }
+    
+    .grupo-info { background: #eef2f5; padding: 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; line-height: 1.5; border-left: 4px solid var(--grist-green); }
+    .actual-dato { color: var(--grist-green); font-weight: 600; }
+    .warning { font-size: 11px; color: #b91c1c; margin-top: 8px; font-style: italic; }
+
+    h4 { margin: 0 0 15px 0; font-size: 1.1rem; color: var(--text-main); text-align: center; }
+    .mini-info { background: #f1f5f9; padding: 12px; border-radius: 8px; font-size: 0.8rem; margin-bottom: 15px; border-left: 4px solid var(--grist-green); }
+    select, textarea, input { width: 100%; margin-top: 8px; padding: 10px; border-radius: 8px; border: 1px solid #ccd1d9; font-size: 0.9rem; font-family: inherit; box-sizing: border-box; }
+    textarea { height: 80px; resize: none; }
+    .btn-save { margin-top: 15px; width: 100%; padding: 12px; font-size: 0.9rem; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; background: var(--grist-green); color: white; }
+    .btn-save:disabled { opacity: 0.3; cursor: not-allowed; }
+    .hidden { display: none; }
+    .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.2); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 90; }
+    .overlay.active { opacity: 1; pointer-events: auto; }
+  </style>
+</head>
+<body>
+
+<div class="main-layout">
+  <div class="overlay" id="overlay"></div>
+  <div class="sidebar">
+    <div class="sidebar-title">Grupos</div>
+    <div class="subject-tabs" id="subjectTabs" role="tablist" aria-label="Filtrar grupos por materia">
+      <button class="subject-tab active" type="button" data-subject="all" role="tab" aria-selected="true">
+        Todos <span class="subject-count" id="countAll">0</span>
+      </button>
+      <button class="subject-tab" type="button" data-subject="PC" role="tab" aria-selected="false">
+        PC <span class="subject-count" id="countPC">0</span>
+      </button>
+      <button class="subject-tab" type="button" data-subject="HD" role="tab" aria-selected="false">
+        HD <span class="subject-count" id="countHD">0</span>
+      </button>
+    </div>
+    <div id="group-list"></div>
+  </div>
+
+  <div class="detail-view">
+    <div class="fab-container">
+        <button class="fab-btn" id="openAction" style="display:none;"><i class="fas fa-sync-alt"></i> ACTUALIZAR ESTADO</button>
+        <button class="fab-btn" id="openModificar" style="display:none;"><i class="fas fa-edit"></i> MODIFICAR DATOS</button>
+    </div>
+    <div id="detail-content"><div style="text-align:center; color:#94a3b8; margin-top:50px;">Seleccione un grupo</div></div>
+  </div>
+
+  <div class="action-panel" id="actionPanel">
+    <button class="close-panel">✕</button>
+    <div class="card-action">
+      <h4>Actualizar Registro</h4>
+      <div class="mini-info">
+        <strong>Grupo:</strong> <span id="grupoLabel">—</span><br>
+        <strong>Estado Actual:</strong> <span id="statusLabel">Cargando...</span>
+      </div>
+      <label class="label">Seleccionar Nuevo Estado</label>
+      <select id="estado"><option value="">Cargando opciones...</option></select>
+      <div id="obsWrapper" class="hidden">
+        <label class="label" style="margin-top:15px;">Observación</label>
+        <textarea id="obs" placeholder="Motivo del cambio..."></textarea>
+      </div>
+      <button id="guardar" class="btn-save" disabled>Guardar Registro</button>
+    </div>
+  </div>
+
+  <div class="action-panel" id="modificarPanel">
+    <button class="close-panel">✕</button>
+    <div class="card-action">
+      <h4>Modificar Grupo</h4>
+      <div class="grupo-info">
+        <strong>ID Grupo:</strong> <span id="idGrupoLabel">—</span><br>
+        <div id="infoActual">Seleccione una opción.</div>
+      </div>
+      <label class="label">¿Qué desea modificar?</label>
+      <select id="tipoModificacion">
+        <option value="">Seleccionar...</option>
+        <option value="dia_hora">Día y Hora</option>
+        <option value="datos_da">Datos del DA</option>
+        <option value="fecha_inicio">Fecha Inicio</option>
+        <option value="aula_crea">Aula CREA</option>
+      </select>
+
+      <div id="sectionDiaHora" class="hidden">
+        <div id="containerFechaEfectiva">
+          <label class="label" style="margin-top:15px;">¿A partir de qué semana? (Ingresar el día Lunes de esa semana):</label>
+          <input type="date" id="fechaEfectiva">
+        </div>
+        <label class="label" style="margin-top:15px;">Nuevo Día de Clase</label>
+        <select id="nuevoDia">
+          <option value="">Seleccionar día...</option>
+          <option value="Monday">Lunes</option>
+          <option value="Tuesday">Martes</option>
+          <option value="Wednesday">Miércoles</option>
+          <option value="Thursday">Jueves</option>
+          <option value="Friday">Viernes</option>
+          <option value="Saturday">Sábado</option>
+        </select>
+        <label class="label" style="margin-top:15px;">Nueva Hora</label>
+        <input type="time" id="nuevaHora">
+        <p id="msgWarning" class="warning">⚠️ Se modificarán todas las clases a partir de la fecha seleccionada.</p>
+      </div>
+
+      <div id="sectionDA" class="hidden">
+        <label class="label" style="margin-top:15px;">Nombre del Docente</label>
+        <input type="text" id="da_nombre" placeholder="Nombre...">
+        <label class="label" style="margin-top:15px;">Apellido del Docente</label>
+        <input type="text" id="da_apellido" placeholder="Apellido...">
+        <label class="label" style="margin-top:15px;">Cédula del Docente</label>
+        <input type="text" id="da_cedula" placeholder="Cédula...">
+        <label class="label" style="margin-top:15px;">Teléfono del Docente</label>
+        <input type="text" id="da_telefono" placeholder="Teléfono...">
+        <label class="label" style="margin-top:15px;">Correo del Docente</label>
+        <input type="email" id="da_correo" placeholder="Correo...">
+      </div>
+
+      <div id="sectionFechaInicio" class="hidden">
+        <label class="label" style="margin-top:15px;">Nueva Fecha de Inicio</label>
+        <input type="date" id="nuevaFechaInicio">
+      </div>
+
+      <div id="sectionAulaCrea" class="hidden">
+        <label class="label" style="margin-top:15px;">Link Aula de CREA</label>
+        <input type="text" id="inputAulaCrea" placeholder="Pegue el link aquí...">
+      </div>
+
+      <button id="btnGuardarMod" class="btn-save" disabled>Aplicar Cambios</button>
+    </div>
+  </div>
+</div>
+
+<script src="./mis_asignaciones.js" defer></script>
+</body>
+</html>
