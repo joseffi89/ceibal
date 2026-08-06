@@ -116,6 +116,7 @@ async function loadData() {
 
       periodDetails[pName] = {
         id: pId,
+        periodoNum: tableData.Periodo_Num ? Number(tableData.Periodo_Num[i]) : null,
         desde: tableData.Desde[i],
         hasta: tableData.Hasta[i],
         habilitado: tableData.Habilitar_a_DR[i],
@@ -199,7 +200,17 @@ function renderSidebar() {
   const validPeriods = [...new Set(allRecords
     .filter(r => r.Periodo && r.Validacion_LIQ === "Validada" && periodDetails[r.Periodo]?.habilitado)
     .map(r => r.Periodo)
-  )].sort((a, b) => b.localeCompare(a));
+  )].sort((a, b) => {
+    const aNum = periodDetails[a]?.periodoNum;
+    const bNum = periodDetails[b]?.periodoNum;
+    const hasANum = Number.isFinite(aNum);
+    const hasBNum = Number.isFinite(bNum);
+
+    if (hasANum && hasBNum) return aNum - bNum;
+    if (hasANum) return -1;
+    if (hasBNum) return 1;
+    return a.localeCompare(b);
+  });
 
   list.innerHTML = '';
   validPeriods.forEach(p => {

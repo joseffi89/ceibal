@@ -94,13 +94,26 @@ async function fetchPeriods() {
     for (let i = 0; i < tableData.id.length; i++) {
       const pId = tableData.id[i];
       const pName = tableData.Periodo[i];
-      periodsData.push({ id: pId, name: pName });
-
-      const option = document.createElement('option');
-      option.value = pId;
-      option.textContent = pName;
-      select.appendChild(option);
+      const periodoNum = tableData.Periodo_Num ? Number(tableData.Periodo_Num[i]) : null;
+      periodsData.push({ id: pId, name: pName, periodoNum });
     }
+
+    periodsData.sort((a, b) => {
+      const hasANum = Number.isFinite(a.periodoNum);
+      const hasBNum = Number.isFinite(b.periodoNum);
+
+      if (hasANum && hasBNum) return a.periodoNum - b.periodoNum;
+      if (hasANum) return -1;
+      if (hasBNum) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    periodsData.forEach(period => {
+      const option = document.createElement('option');
+      option.value = period.id;
+      option.textContent = period.name;
+      select.appendChild(option);
+    });
   } catch (err) {
     showStatus("Error al cargar períodos", "error");
   }
