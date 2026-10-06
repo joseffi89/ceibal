@@ -1,0 +1,410 @@
+<html>
+<head>
+  <meta charset="utf-8" />
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    :root {
+      --green: #16B378;
+      --green-dark: #0f8f5f;
+      --red: #c0392b;
+      --text: #243447;
+      --muted: #64748b;
+      --border: #dbe3ea;
+      --bg: #f4f6f8;
+    }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 16px;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+      max-width: 620px;
+      margin: 0 auto;
+    }
+
+    h3 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      color: #2c3e50;
+    }
+
+    .summary {
+      background: #eef2f5;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .count {
+      font-weight: 800;
+      color: var(--green);
+      font-size: 16px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: var(--green);
+      color: #ffffff;
+    }
+
+    button.secondary {
+      background: #334155;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--green-dark);
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: #1e293b;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      background: #94a3b8;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .error { color: var(--red); }
+    .success { color: var(--green); }
+
+    @media (max-width: 520px) {
+      .actions {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h3>Cargar extension de clases PC</h3>
+  <div class="summary" id="summary">Presiona Calcular para buscar clases de extension.</div>
+  <div class="muted">
+    Se toman asignaciones PC en estado Asignado y se agregan solo clases posteriores al 06/11/2026, hasta la Fecha_Fin actual.
+  </div>
+  <div class="actions">
+    <button class="secondary" id="btnCalcular">Calcular</button>
+    <button id="btnCargar" disabled>Cargar extension</button>
+  </div>
+  <div id="status" class="status"></div>
+</div>
+
+<script>
+const btnCalcular = document.getElementById("btnCalcular");
+const btnCargar = document.getElementById("btnCargar");
+const summary = document.getElementById("summary");
+const statusMsg = document.getElementById("status");
+
+let clasesFaltantes = [];
+let gruposConFaltantes = [];
+
+const FECHA_FIN_ANTERIOR = new Date(Date.UTC(2026, 10, 6, 12, 0, 0));
+const FECHA_FIN_ANTERIOR_LABEL = "06/11/2026";
+
+const diasSemanaMap = {
+  Domingo: 0,
+  Lunes: 1,
+  Martes: 2,
+  Miercoles: 3,
+  Jueves: 4,
+  Viernes: 5,
+  Sabado: 6,
+};
+
+function parseGristDate(value) {
+  if (!value) return null;
+  if (typeof value === "number" && value < 10000000000) return new Date(value * 1000);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeRefId(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function dateKey(value) {
+  const date = parseGristDate(value);
+  if (!date) return "";
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function formatDate(value) {
+  const key = dateKey(value);
+  if (!key) return "-";
+  const [year, month, day] = key.split("-");
+  return `${day}/${month}/${year}`;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function tableToRows(table) {
+  const rows = [];
+  const ids = table.id || [];
+  for (let i = 0; i < ids.length; i += 1) {
+    const row = {};
+    Object.keys(table).forEach((key) => {
+      row[key] = table[key][i];
+    });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function getMateria(record) {
+  const posiblesCampos = [
+    record.Materia_display,
+    record.Materia,
+    record.Asignatura_display,
+    record.Asignatura,
+    record.Area_display,
+    record.Area,
+    record.ID_Grupo_display,
+    record.ID_Grupo,
+    record.Grupo,
+  ];
+  const texto = posiblesCampos
+    .filter((value) => value !== null && value !== undefined && value !== "")
+    .join(" ")
+    .toUpperCase();
+
+  if (/(^|[^A-Z])PC([^A-Z]|$)|PENSAMIENTO COMPUTACIONAL/.test(texto)) return "PC";
+  return "";
+}
+
+function getAgendaGroupId(record) {
+  return normalizeRefId(record.ID_Grupo_Grupo) ?? normalizeRefId(record.ID_Grupo);
+}
+
+function getGroupLabel(record) {
+  return record.ID_Grupo_display || record.ID_Grupo || record.Grupo || `Grupo ${record.id}`;
+}
+
+function getExistingOriginalKeys(agendaRows) {
+  const keys = new Set();
+
+  agendaRows.forEach((row) => {
+    const groupId = getAgendaGroupId(row);
+    const claseKey = dateKey(row.Clase);
+    const tipo = normalizeText(row.Tipo_de_Clase || "Original");
+
+    if (!groupId || !claseKey) return;
+    if (tipo === "Recuperacion") return;
+
+    keys.add(`${groupId}|${claseKey}`);
+  });
+
+  return keys;
+}
+
+function getExtensionClassDates(group) {
+  const inicio = parseGristDate(group.Fecha_Inicio);
+  const fin = parseGristDate(group.Fecha_Fin);
+  const dia = normalizeText(group.Dia);
+  const targetDia = diasSemanaMap[dia];
+
+  if (!inicio || !fin || targetDia === undefined) return [];
+
+  const extensionStart = new Date(FECHA_FIN_ANTERIOR);
+  extensionStart.setUTCDate(extensionStart.getUTCDate() + 1);
+
+  const current = inicio > extensionStart ? new Date(inicio) : extensionStart;
+  current.setUTCHours(12, 0, 0, 0);
+
+  const end = new Date(fin);
+  end.setUTCHours(12, 0, 0, 0);
+
+  if (end <= FECHA_FIN_ANTERIOR) return [];
+
+  let attempts = 0;
+  while (current.getUTCDay() !== targetDia && attempts < 7) {
+    current.setUTCDate(current.getUTCDate() + 1);
+    attempts += 1;
+  }
+
+  const dates = [];
+  while (current <= end) {
+    dates.push(new Date(current));
+    current.setUTCDate(current.getUTCDate() + 7);
+  }
+
+  return dates;
+}
+
+function renderResults() {
+  const totalGrupos = gruposConFaltantes.length;
+  const totalClases = clasesFaltantes.length;
+
+  if (totalClases === 0) {
+    summary.innerHTML = `No se encontraron clases PC para cargar despues del ${FECHA_FIN_ANTERIOR_LABEL}.`;
+    btnCargar.disabled = true;
+    return;
+  }
+
+  summary.innerHTML = `
+    Hay <span class="count">${totalClases}</span> clases de extension
+    en <span class="count">${totalGrupos}</span> grupos PC.
+  `;
+  btnCargar.disabled = false;
+}
+
+async function calcular() {
+  btnCalcular.disabled = true;
+  btnCargar.disabled = true;
+  statusMsg.className = "status";
+  statusMsg.textContent = "Calculando...";
+  summary.textContent = "Calculando clases de extension...";
+
+  try {
+    const [asignacionesTable, agendaTable] = await Promise.all([
+      grist.docApi.fetchTable("Asignaciones"),
+      grist.docApi.fetchTable("Agenda"),
+    ]);
+
+    const asignaciones = tableToRows(asignacionesTable);
+    const agendaRows = tableToRows(agendaTable);
+    const existingOriginalKeys = getExistingOriginalKeys(agendaRows);
+    const missingByGroup = new Map();
+
+    clasesFaltantes = [];
+
+    asignaciones
+      .filter((group) => group.Estado_Grupo === "Asignado" && getMateria(group) === "PC")
+      .forEach((group) => {
+        const expectedDates = getExtensionClassDates(group);
+
+        expectedDates.forEach((date) => {
+          const key = `${group.id}|${dateKey(date)}`;
+          if (existingOriginalKeys.has(key)) return;
+
+          const missing = {
+            groupId: group.id,
+            groupLabel: getGroupLabel(group),
+            timestamp: date.getTime() / 1000,
+            dateLabel: formatDate(date),
+          };
+
+          clasesFaltantes.push(missing);
+
+          if (!missingByGroup.has(group.id)) {
+            missingByGroup.set(group.id, {
+              label: missing.groupLabel,
+              dates: [],
+            });
+          }
+          missingByGroup.get(group.id).dates.push(missing.dateLabel);
+        });
+      });
+
+    gruposConFaltantes = [...missingByGroup.values()]
+      .map((group) => ({
+        label: group.label,
+        count: group.dates.length,
+        first: group.dates[0],
+        last: group.dates[group.dates.length - 1],
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    renderResults();
+    statusMsg.textContent = "";
+  } catch (error) {
+    console.error(error);
+    summary.innerHTML = '<span class="error">Error al leer Asignaciones o Agenda.</span>';
+    statusMsg.className = "status error";
+    statusMsg.textContent = error.message || "Error inesperado.";
+  } finally {
+    btnCalcular.disabled = false;
+  }
+}
+
+async function cargarFaltantes() {
+  if (clasesFaltantes.length === 0) return;
+
+  const ok = confirm(`Se van a crear ${clasesFaltantes.length} clases de extension de PC posteriores al ${FECHA_FIN_ANTERIOR_LABEL}. Continuar?`);
+  if (!ok) return;
+
+  btnCalcular.disabled = true;
+  btnCargar.disabled = true;
+  statusMsg.className = "status";
+  statusMsg.textContent = "Cargando clases de extension...";
+
+  const acciones = clasesFaltantes.map((clase) => [
+    "AddRecord",
+    "Agenda",
+    null,
+    {
+      ID_Grupo: clase.groupId,
+      Clase: clase.timestamp,
+      Tipo_de_Clase: "Original",
+    },
+  ]);
+
+  try {
+    const chunkSize = 500;
+    for (let i = 0; i < acciones.length; i += chunkSize) {
+      await grist.docApi.applyUserActions(acciones.slice(i, i + chunkSize));
+    }
+
+    const totalCargado = acciones.length;
+    await calcular();
+    statusMsg.className = "status success";
+    statusMsg.textContent = `Listo: se cargaron ${totalCargado} clases de extension de PC.`;
+  } catch (error) {
+    console.error(error);
+    statusMsg.className = "status error";
+    statusMsg.textContent = error.message || "Error al crear las clases.";
+    btnCalcular.disabled = false;
+    btnCargar.disabled = clasesFaltantes.length === 0;
+  }
+}
+
+btnCalcular.addEventListener("click", calcular);
+btnCargar.addEventListener("click", cargarFaltantes);
+
+grist.ready({ requiredAccess: "full" });
+</script>
+</body>
+</html>

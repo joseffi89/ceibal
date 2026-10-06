@@ -2,6 +2,11 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <link rel="preconnect" href="https://docs.getgrist.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -225,7 +230,7 @@
       <h3 id="modalTitle" style="margin:0; color:var(--grist-green); display: flex; align-items: center; gap: 10px;">
         <i class="fa-solid fa-pen-to-square"></i> Informe de Clase
       </h3>
-      <button onclick="cerrarModal('modalInforme')" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8">&times;</button>
+      <button data-close-modal="modalInforme" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8">&times;</button>
     </div>
     
     <div class="clase-info-panel" id="claseInfoPanel" style="display: none;">
@@ -250,7 +255,7 @@
   <div class="modal-content">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
       <h3 style="margin:0; color:var(--grist-green); display: flex; align-items: center; gap: 10px;"><i class="fa-solid fa-arrows-rotate"></i> Recuperación de Clase</h3>
-      <button onclick="cerrarModal('modalRecuperacion')" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8">&times;</button>
+      <button data-close-modal="modalRecuperacion" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8">&times;</button>
     </div>
     <div class="info-clase-rec">Grupo: <b id="lblGrupo">Cargando...</b></div>
     <div class="stats-container">
@@ -273,7 +278,7 @@
           <h3>Historial de Clases</h3>
           <div style="font-size: 14px; font-weight: 600; color: #64748b; margin-top: 4px;" id="grupoHistorialLabel">Cargando...</div>
        </div>
-       <button onclick="cerrarModal('modalHistorial')" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8; align-self: flex-start;">&times;</button>
+       <button data-close-modal="modalHistorial" style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8; align-self: flex-start;">&times;</button>
     </div>
     <div id="historialContenido"></div>
   </div>

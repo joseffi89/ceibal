@@ -9,11 +9,34 @@ let esFechaFutura = false;
 let eventosFeriados = [];
 let eventosClases = [];
 let cacheInformes = null;
+let cacheInformesPromise = null;
+let cacheInformesCompleta = false;
+let datosFormularioPromise = null;
 let informeByClaseId = new Map();
 let informesByGrupo = new Map();
+let accessTokenInfo = null;
+let accessTokenPromise = null;
+let informesPorClasePromise = new Map();
+let informesPorGrupoPromise = new Map();
+let clasesInformesConsultadas = new Set();
+let gruposInformesConsultados = new Set();
 let canceladasByGrupo = new Map();
 let recuperadasByGrupo = new Map();
 let cancelacionesRestringidasPorGrupoSemana = new Map();
+let recordsById = new Map();
+let agendaVersion = 0;
+let feriadosVersion = 0;
+let lastRenderedAgendaVersion = -1;
+let lastRenderedFeriadosVersion = -1;
+
+const ESTADOS_CANCELADOS = new Set([4, 5, 6, 7]);
+const ESTADOS_RESTRINGIDOS = new Set([6, 7]);
+const ESTADOS_ROJOS = new Set([2, 4, 5, 6, 7]);
+const ESTADOS_INFORME_VISIBLES = [1, 6, 4, 5, 7];
+const DRIVE_FILE_PREFIX = "https://drive.google.com/file";
+const DURACION_CLASE_MS = 45 * 60000;
+const TIPO_CLASE_RECUPERACION = "Recuperación";
+const TIPOS_DIA_AGENDA = new Set(["Hábil", "HÃ¡bil", "Feriado"]);
 
 const opcionesManuales = { 
     'Plataforma': ['Jabber', 'Webex', 'Meet/Zoom', 'Conferences'], 
@@ -44,6 +67,31 @@ function getSemanaKey(grupoId, semana) {
   return `${mapKey(grupoId)}|${semana ?? ''}`;
 }
 
+function gristTimestampToDate(v) {
+  return new Date(typeof v === 'number' ? v * 1000 : v);
+}
+
+function gristTimestampToLocalDate(v) {
+  const d = gristTimestampToDate(v);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+function formatDateInputValue(value) {
+  if (value === null || value === undefined || value === '') return '';
+
+  if (typeof value === 'string') {
+    const isoDate = value.match(/^\d{4}-\d{2}-\d{2}/);
+    if (isoDate) return isoDate[0];
+  }
+
+  const numericValue = Number(value);
+  const date = Number.isFinite(numericValue)
+    ? new Date(Math.abs(numericValue) < 1e12 ? numericValue * 1000 : numericValue)
+    : new Date(value);
+
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
+}
+
 function tableRowToObject(table, idx) {
   const row = {};
   Object.keys(table || {}).forEach(key => {
@@ -52,11 +100,247 @@ function tableRowToObject(table, idx) {
   return row;
 }
 
+function getEstadoId(value) {
+  return Number(normalizeRefId(value));
+}
+
+function fetchInformes(force = false) {
+  if (!force && cacheInformesCompleta && cacheInformes) return Promise.resolve(cacheInformes);
+  if (!force && cacheInformesPromise) return cacheInformesPromise;
+
+  cacheInformesPromise = grist.docApi.fetchTable("Informe")
+    .then(table => {
+      setCacheInformes(table);
+      cacheInformesCompleta = true;
+      return table;
+    })
+    .finally(() => {
+      cacheInformesPromise = null;
+    });
+
+  return cacheInformesPromise;
+}
+
+function upsertInformeEnCache(record) {
+  return upsertInformesEnCache(record ? [record] : []);
+}
+
+function upsertInformesEnCache(records) {
+  if (!records?.length) return false;
+
+  if (!cacheInformes) cacheInformes = { id: [] };
+  if (!Array.isArray(cacheInformes.id)) cacheInformes.id = [];
+
+  let changed = false;
+  records.forEach(record => {
+    const id = record?.id;
+    if (id === null || id === undefined) return;
+
+    let idx = cacheInformes.id.findIndex(existingId => existingId === id);
+    if (idx === -1) {
+      idx = cacheInformes.id.length;
+      cacheInformes.id.push(id);
+    }
+
+    const allKeys = new Set([...Object.keys(cacheInformes), ...Object.keys(record)]);
+    allKeys.forEach(key => {
+      if (!cacheInformes[key]) cacheInformes[key] = Array(cacheInformes.id.length).fill(null);
+      while (cacheInformes[key].length < cacheInformes.id.length) cacheInformes[key].push(null);
+      if (key in record) cacheInformes[key][idx] = record[key];
+    });
+    changed = true;
+  });
+
+  if (!changed) return false;
+  setCacheInformes(cacheInformes);
+  return true;
+}
+
+function getAddedRecordId(result) {
+  let value = result?.retValues?.[0];
+
+  // Compatibilidad con versiones de Grist que devuelven directamente
+  // el arreglo de resultados en lugar del objeto con retValues.
+  if (value === undefined && Array.isArray(result)) value = result[0];
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    value = value.id ?? value.rowId;
+  }
+  if (Array.isArray(value)) value = value[0];
+
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function construirInformeCacheLocal(data, id, existente = null, clase = recordClase) {
+  return {
+    ID_Grupo: getGrupoId(clase),
+    Clase: clase?.Clase,
+    Hora_Desde: clase?.Hora_Desde,
+    Tipo_de_Clase: clase?.Tipo_de_Clase,
+    DR_a_cargo_Apellido_y_Nombre:
+      clase?.DR_a_cargo_Apellido_y_Nombre ?? clase?.DR_a_cargo,
+    ...(existente || {}),
+    ...data,
+    id,
+    ID_Clase: clase?.id ?? data.ID_Clase,
+    Estado_Clase_ID: data.Estado
+  };
+}
+
+async function getReadOnlyAccessToken() {
+  const ahora = Date.now();
+  if (accessTokenInfo?.expiresAt > ahora + 5000) return accessTokenInfo;
+  if (accessTokenPromise) return accessTokenPromise;
+
+  accessTokenPromise = grist.docApi.getAccessToken({ readOnly: true })
+    .then(info => {
+      accessTokenInfo = {
+        ...info,
+        expiresAt: Date.now() + Math.max(Number(info.ttlMsecs) || 60000, 10000)
+      };
+      return accessTokenInfo;
+    })
+    .finally(() => {
+      accessTokenPromise = null;
+    });
+
+  return accessTokenPromise;
+}
+
+async function fetchInformesFiltrados(filter) {
+  const tokenInfo = await getReadOnlyAccessToken();
+  const baseUrl = String(tokenInfo.baseUrl || '').replace(/\/$/, '');
+  const url = new URL(`${baseUrl}/tables/Informe/records`);
+  url.searchParams.set('filter', JSON.stringify(filter));
+  url.searchParams.set('auth', tokenInfo.token);
+
+  // El token en query string evita el preflight CORS que Grist no admite
+  // para el encabezado Authorization desde un custom widget externo.
+  const response = await fetch(url.toString());
+
+  if (!response.ok) {
+    throw new Error(`Consulta filtrada de Informe: HTTP ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const records = Array.isArray(payload?.records) ? payload.records : [];
+  return records.map(record => ({ id: record.id, ...(record.fields || {}) }));
+}
+
+function filtrarCacheInformes(filter) {
+  const ids = cacheInformes?.id || [];
+  return ids
+    .map((_, idx) => tableRowToObject(cacheInformes, idx))
+    .filter(row => Object.entries(filter).every(([column, allowedValues]) => {
+      const rowKey = mapKey(row[column]);
+      return (allowedValues || []).some(value => mapKey(value) === rowKey);
+    }));
+}
+
+async function consultarInformes(filter) {
+  try {
+    const records = await fetchInformesFiltrados(filter);
+    upsertInformesEnCache(records);
+    return records;
+  } catch (e) {
+    console.warn("No se pudo usar la consulta filtrada; se usa fetchTable como respaldo:", e);
+    await fetchInformes();
+    return filtrarCacheInformes(filter);
+  }
+}
+
+async function cargarInformeDeClase(record, { force = false } = {}) {
+  if (!record?.id) return null;
+
+  const key = String(record.id);
+  const local = informeByClaseId.get(key) || null;
+  if (!force && (local || clasesInformesConsultadas.has(key))) return local;
+  if (informesPorClasePromise.has(key)) return informesPorClasePromise.get(key);
+
+  const request = consultarInformes({ ID_Clase: [record.id] })
+    .then(() => {
+      clasesInformesConsultadas.add(key);
+      return informeByClaseId.get(key) || null;
+    })
+    .finally(() => {
+      informesPorClasePromise.delete(key);
+    });
+
+  informesPorClasePromise.set(key, request);
+  return request;
+}
+
+async function cargarInformesDeGrupo(grupoId, { force = false } = {}) {
+  const key = mapKey(grupoId);
+  if (!key) return [];
+  if (!force && gruposInformesConsultados.has(key)) {
+    return informesByGrupo.get(key) || [];
+  }
+  if (informesPorGrupoPromise.has(key)) return informesPorGrupoPromise.get(key);
+
+  const request = consultarInformes({ ID_Grupo: [normalizeRefId(grupoId)] })
+    .then(() => {
+      gruposInformesConsultados.add(key);
+      return informesByGrupo.get(key) || [];
+    })
+    .finally(() => {
+      informesPorGrupoPromise.delete(key);
+    });
+
+  informesPorGrupoPromise.set(key, request);
+  return request;
+}
+
+function setInformeButtonState(informe, { loading = false, error = false } = {}) {
+  const btnInforme = document.getElementById('btnAbrirInforme');
+  const txtBtn = document.getElementById('txtBtnInforme');
+
+  if (loading) {
+    if (txtBtn) txtBtn.textContent = "Cargando informe...";
+    if (btnInforme) {
+      btnInforme.classList.remove('btn-edit');
+      btnInforme.disabled = true;
+    }
+    return;
+  }
+
+  if (error) {
+    if (txtBtn) txtBtn.textContent = "Reintentar informe";
+    if (btnInforme) {
+      btnInforme.classList.remove('btn-edit');
+      btnInforme.disabled = false;
+    }
+    return;
+  }
+
+  if (btnInforme) btnInforme.disabled = false;
+
+  if (informe && informe.Estado) {
+    if (txtBtn) txtBtn.textContent = "Ver/Editar Informe";
+    if (btnInforme) btnInforme.classList.add('btn-edit');
+  } else {
+    if (txtBtn) txtBtn.textContent = "Informar Clase";
+    if (btnInforme) btnInforme.classList.remove('btn-edit');
+  }
+}
+
+function actualizarInformeActualDesdeCache() {
+  if (!recordClase) return null;
+  if (!cacheInformes) {
+    informeExistente = null;
+    setInformeButtonState(null);
+    return null;
+  }
+
+  informeExistente = informeByClaseId.get(String(recordClase.id)) || null;
+  setInformeButtonState(informeExistente);
+  return informeExistente;
+}
+
 function setCacheInformes(table) {
   cacheInformes = table;
   informeByClaseId = new Map();
   informesByGrupo = new Map();
-  canceladasByGrupo = new Map();
 
   const ids = table?.id || [];
   ids.forEach((_, idx) => {
@@ -71,15 +355,11 @@ function setCacheInformes(table) {
       if (!informesByGrupo.has(grupo)) informesByGrupo.set(grupo, []);
       informesByGrupo.get(grupo).push(idx);
     }
-
-    const estadoId = Number(normalizeRefId(table.Estado_Clase_ID?.[idx]));
-    if (grupo && [4, 5, 6, 7].includes(estadoId)) {
-      canceladasByGrupo.set(grupo, (canceladasByGrupo.get(grupo) || 0) + 1);
-    }
   });
 }
 
 function rebuildAgendaCaches(records) {
+  canceladasByGrupo = new Map();
   recuperadasByGrupo = new Map();
   cancelacionesRestringidasPorGrupoSemana = new Map();
 
@@ -88,12 +368,16 @@ function rebuildAgendaCaches(records) {
     const grupo = mapKey(grupoId);
     if (!grupo) return;
 
-    if (r.Tipo_de_Clase === "Recuperación") {
+    if (r.Tipo_de_Clase === TIPO_CLASE_RECUPERACION) {
       recuperadasByGrupo.set(grupo, (recuperadasByGrupo.get(grupo) || 0) + 1);
     }
 
-    const estadoId = Number(normalizeRefId(r.Estado_Clase_ID));
-    if ([6, 7].includes(estadoId)) {
+    const estadoId = getEstadoId(r.Estado_Clase_ID);
+    if (ESTADOS_CANCELADOS.has(estadoId)) {
+      canceladasByGrupo.set(grupo, (canceladasByGrupo.get(grupo) || 0) + 1);
+    }
+
+    if (ESTADOS_RESTRINGIDOS.has(estadoId)) {
       const key = getSemanaKey(grupoId, r.Clase_Semana);
       cancelacionesRestringidasPorGrupoSemana.set(key, (cancelacionesRestringidasPorGrupoSemana.get(key) || 0) + 1);
     }
@@ -139,43 +423,62 @@ const configForm = {
 async function inicializar() {
   initCalendar();
   if (typeof grist !== 'undefined') {
-    await Promise.all([
-      grist.docApi.fetchTable("Informe")
-        .then(setCacheInformes)
-        .catch(e => console.warn("Error cargando caché Informe:", e)),
+    datosFormularioPromise = Promise.all([
       cargarDesplegables(),
       cargarEstados(),
       cargarCalendarioFeriados()
-    ]);
+    ]).catch(e => console.warn("Error cargando datos iniciales:", e));
+
   }
   
   // ⚠️ CORRECCIÓN: Vincular eventos después de que el DOM esté listo
   const btnInforme = document.getElementById('btnAbrirInforme');
   if (btnInforme) {
-    btnInforme.onclick = async () => { 
-      await prepararModalInforme(); 
-      document.getElementById('modalInforme').style.display = 'flex'; 
-    };
+    btnInforme.addEventListener('click', async () => {
+      try {
+        if (datosFormularioPromise) await datosFormularioPromise;
+        const claseSeleccionada = recordClase;
+        let informe = actualizarInformeActualDesdeCache();
+        const estadoTieneInforme = ESTADOS_INFORME_VISIBLES.includes(
+          getEstadoId(claseSeleccionada?.Estado_Clase_ID)
+        );
+
+        if (!informe && estadoTieneInforme) {
+          setInformeButtonState(null, { loading: true });
+          informe = await cargarInformeDeClase(claseSeleccionada);
+          if (recordClase?.id !== claseSeleccionada?.id) return;
+          informeExistente = informe;
+          setInformeButtonState(informeExistente);
+        }
+
+        await prepararModalInforme();
+        document.getElementById('modalInforme').style.display = 'flex';
+      } catch (e) {
+        setInformeButtonState(null, { error: true });
+        console.error("Error abriendo el informe:", e);
+        alert("No se pudo abrir el informe: " + e.message);
+      }
+    });
   }
   
   const btnRecup = document.getElementById('btnAbrirRecuperacion');
   if (btnRecup) {
-    btnRecup.onclick = () => { 
+    btnRecup.addEventListener('click', () => {
       document.getElementById('modalRecuperacion').style.display = 'flex'; 
-    };
+    });
   }
   
   const btnEnviar = document.getElementById('btnEnviar');
   if (btnEnviar) {
-    btnEnviar.onclick = enviarInforme;
+    btnEnviar.addEventListener('click', enviarInforme);
   }
   
   // ⚠️ CORRECCIÓN CRÍTICA: Vincular el onchange del estadoSelect aquí, no en prepararModalInforme
   const estadoSelect = document.getElementById('estadoSelect');
   if (estadoSelect) {
-    estadoSelect.onchange = function() {
+    estadoSelect.addEventListener('change', function() {
       generarCamposDinamicos(this.value);
-    };
+    });
   }
   
   // Listener para el input de recuperación
@@ -186,8 +489,12 @@ async function inicializar() {
   
   const btnGenerar = document.getElementById('btnGenerar');
   if (btnGenerar) {
-    btnGenerar.onclick = generarClaseRecuperada;
+    btnGenerar.addEventListener('click', generarClaseRecuperada);
   }
+
+  document.querySelectorAll('[data-close-modal]').forEach(btn => {
+    btn.addEventListener('click', () => cerrarModal(btn.dataset.closeModal));
+  });
 }
 
 /**
@@ -240,6 +547,12 @@ function generarCamposDinamicos(estadoId) {
       input.type = 'hidden'; 
       input.id = c.id;
       group.appendChild(timeContainer);
+      timeContainer.querySelectorAll('input').forEach(timeInput => {
+        timeInput.addEventListener('input', () => {
+          actualizarVisibilidad();
+          validarBoton();
+        });
+      });
     } 
     else { 
       input = document.createElement(c.type === 'textarea' ? 'textarea' : 'input'); 
@@ -275,8 +588,7 @@ function formatearValorHistorial(val, campoNombre) {
     if (val === null || val === undefined || val === "") return '<span class="empty-val">---</span>';
     if (Array.isArray(val)) val = val[1];
     if (typeof val === 'number' && val > 1000000000) {
-      const d = new Date(val * 1000);
-      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).toLocaleDateString('es-AR');
+      return gristTimestampToLocalDate(val).toLocaleDateString('es-AR');
     }
     const s = String(val).trim();
     if (s.startsWith("http")) {
@@ -297,14 +609,12 @@ async function abrirHistorial() {
     const grupoId = getGrupoId(recordClase);
     document.getElementById("grupoHistorialLabel").textContent = recordClase.ID_Grupo_display || recordClase.ID_Grupo || "Grupo " + grupoId;
     document.getElementById('modalHistorial').style.display = 'flex';
+    const contenedor = document.getElementById("historialContenido");
+    contenedor.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin fa-2x" style="margin-bottom:10px; display:block;"></i>Cargando historial...</div>';
     
     try {
-        if (!cacheInformes) {
-            setCacheInformes(await grist.docApi.fetchTable("Informe"));
-        }
-        const informes = cacheInformes;
-        
-        const contenedor = document.getElementById("historialContenido");
+        await cargarInformesDeGrupo(grupoId);
+        const informes = cacheInformes || { id: [] };
         contenedor.innerHTML = "";
         
         let indicesInformes = [...(informesByGrupo.get(mapKey(grupoId)) || [])];
@@ -347,7 +657,7 @@ async function abrirHistorial() {
                 if (informes.Plataforma && informes.Plataforma[infIdx]) {
                     textoBadge = `Dictada - ${normalizeRefLabel(informes.Plataforma[infIdx])}`;
                 }
-            } else if ([4, 5, 6, 7].includes(estadoId)) {
+            } else if (ESTADOS_CANCELADOS.has(estadoId)) {
                 camposVisualizar = ["Motivo", "Evidencia", "Notas_Complementarias", "Coordinacion_con_DA"];
                 badgeClass = "st-rojo";
                 textoBadge = "Cancelada";
@@ -404,7 +714,7 @@ function initCalendar() {
     slotMaxTime: '18:00:00', 
     allDaySlot: false,
     headerToolbar: { left: 'prev,next today', center: 'title', right: 'timeGridWeek,dayGridMonth' },
-    eventClick: (info) => { if (info.event.extendedProps.fullRecord) renderDetail(info.event.extendedProps.fullRecord); },
+    eventClick: (info) => { const rec = recordsById.get(Number(info.event.id)); if (rec) renderDetail(rec); },
     eventContent: (arg) => {
       if (arg.event.display === 'background') return { html: `<div style="font-size:0.7rem; color:#000000; font-weight:bold; padding:2px;">${arg.event.title}</div>` };
       let timeStr = arg.event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -425,22 +735,38 @@ async function cargarCalendarioFeriados() {
     if (data && data.Fecha) {
       eventosFeriados = data.id.map((id, i) => ({
         title: data.Tipo ? data.Tipo[i] : 'Feriado',
-        start: new Date(typeof data.Fecha[i] === 'number' ? data.Fecha[i] * 1000 : data.Fecha[i]).toISOString().split('T')[0],
+        start: gristTimestampToDate(data.Fecha[i]).toISOString().split('T')[0],
         display: 'background', color: '#c0ebda'
       }));
-      refrescarCalendario();
+      feriadosVersion++;
+      refrescarCalendario({ feriadosChanged: true });
     }
   } catch (e) { console.warn("Tabla Calendario no encontrada."); }
 }
 
-function refrescarCalendario() { 
-    if (calendar) {
-      calendar.batchRendering(() => {
-        calendar.removeAllEvents(); 
-        calendar.addEventSource(eventosClases); 
-        calendar.addEventSource(eventosFeriados); 
-      });
-    }
+let agendaEventSource = null;
+let feriadosEventSource = null;
+
+function refrescarCalendario({ agendaChanged = true, feriadosChanged = true } = {}) {
+    if (!calendar) return;
+
+    const debeActualizarAgenda = agendaChanged && agendaVersion !== lastRenderedAgendaVersion;
+    const debeActualizarFeriados = feriadosChanged && feriadosVersion !== lastRenderedFeriadosVersion;
+
+    if (!debeActualizarAgenda && !debeActualizarFeriados) return;
+
+    calendar.batchRendering(() => {
+      if (debeActualizarAgenda) {
+        if (agendaEventSource) agendaEventSource.remove();
+        agendaEventSource = calendar.addEventSource(eventosClases);
+        lastRenderedAgendaVersion = agendaVersion;
+      }
+      if (debeActualizarFeriados) {
+        if (feriadosEventSource) feriadosEventSource.remove();
+        feriadosEventSource = calendar.addEventSource(eventosFeriados);
+        lastRenderedFeriadosVersion = feriadosVersion;
+      }
+    });
 }
 
 /**
@@ -453,7 +779,7 @@ async function cargarEstados() {
   
   const options = ['<option value="">Seleccione estado...</option>'];
   const estadosById = new Map((estados.id || []).map((id, idx) => [id, estados.Estado?.[idx]]));
-  [1, 6, 4, 5, 7].forEach(id => {
+  ESTADOS_INFORME_VISIBLES.forEach(id => {
     const estado = estadosById.get(id);
     if(estado) {
       options.push(`<option value="${id}">${estado}</option>`);
@@ -484,25 +810,6 @@ async function renderDetail(record) {
   
   const actionsArea = document.getElementById('actionsArea');
   if (actionsArea) actionsArea.style.display = 'flex';
-  
-  try {
-    if (!cacheInformes) {
-      setCacheInformes(await grist.docApi.fetchTable('Informe'));
-    }
-    informeExistente = informeByClaseId.get(String(record.id)) || null;
-    
-    const btnInforme = document.getElementById('btnAbrirInforme');
-    const txtBtn = document.getElementById('txtBtnInforme');
-    
-    if (informeExistente && informeExistente.Estado) {
-      if (txtBtn) txtBtn.textContent = "Ver/Editar Informe";
-      if (btnInforme) btnInforme.classList.add('btn-edit');
-    } else {
-      informeExistente = null;
-      if (txtBtn) txtBtn.textContent = "Informar Clase";
-      if (btnInforme) btnInforme.classList.remove('btn-edit');
-    }
-  } catch(e) { console.warn("Error verificando informe existente:", e); }
 
   idGrupoRec = getGrupoId(record);
 
@@ -514,8 +821,8 @@ async function renderDetail(record) {
   record.Clases_Recuperadas = recLocal;
 
   let leyendaRecuperacion = "";
-  const esCancelada = [4, 5, 6, 7].includes(Number(normalizeRefId(record.Estado_Clase_ID)));
-  if (record.Tipo_de_Clase === "Recuperación") {
+  const esCancelada = ESTADOS_CANCELADOS.has(getEstadoId(record.Estado_Clase_ID));
+  if (record.Tipo_de_Clase === TIPO_CLASE_RECUPERACION) {
     leyendaRecuperacion = `<span class="val-rec-info"><i class="fa-solid fa-link"></i> ${record.Recuperacion || ''}</span>`;
   } else if (esCancelada) {
     leyendaRecuperacion = `<span class="val-rec-info"><i class="fa-solid fa-clock-rotate-left"></i> ${record.Recuperacion || 'Aun no recuperada'}</span>`;
@@ -529,7 +836,7 @@ async function renderDetail(record) {
           <span class="label">Grupo</span>
           <div class="val">
             <i class="fa fa-graduation-cap"></i> ${record.ID_Grupo_display || record.ID_Grupo}
-            <i class="fa-solid fa-eye btn-ojo" title="Ver Historial" onclick="abrirHistorial()"></i>
+            <i class="fa-solid fa-eye btn-ojo" title="Ver Historial"></i>
           </div>
         </div>
         <div class="data-group"><span class="label">Fecha</span><div class="val"><i class="fa-regular fa-calendar"></i> ${formatDate(record.Clase)}</div></div>
@@ -541,6 +848,7 @@ async function renderDetail(record) {
           ${leyendaRecuperacion}
         </div>
       </div>`;
+    detailContent.querySelector('.btn-ojo')?.addEventListener('click', abrirHistorial);
   }
 
   // Actualizar stats de recuperación
@@ -554,13 +862,28 @@ async function renderDetail(record) {
   if (txtRecuperadas) txtRecuperadas.textContent = record.Clases_Recuperadas || 0;
 
   // Calcular si es fecha futura
-  let tempD = new Date(typeof record.Clase === 'number' ? record.Clase * 1000 : record.Clase);
-  let dClase = new Date(tempD.getUTCFullYear(), tempD.getUTCMonth(), tempD.getUTCDate());
+  const dClase = gristTimestampToLocalDate(record.Clase);
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
-  
+
   esFechaFutura = dClase.getTime() > hoy.getTime();
   validarRecuperacion();
+  const informeLocal = actualizarInformeActualDesdeCache();
+  const estadoTieneInforme = ESTADOS_INFORME_VISIBLES.includes(getEstadoId(record.Estado_Clase_ID));
+
+  if (!informeLocal && estadoTieneInforme) {
+    setInformeButtonState(null, { loading: true });
+    try {
+      const informe = await cargarInformeDeClase(record);
+      if (recordClase?.id !== record.id) return;
+      informeExistente = informe;
+      setInformeButtonState(informeExistente);
+    } catch (e) {
+      if (recordClase?.id !== record.id) return;
+      setInformeButtonState(null, { error: true });
+      console.warn("Error cargando el informe de la clase:", e);
+    }
+  }
 }
 
 /**
@@ -576,8 +899,8 @@ function validarRecuperacion() {
   if (!inputFecha || !errorDiv || !btnGenerar) return;
   
   const can = recordClase.Clases_Canceladas || 0, rec = recordClase.Clases_Recuperadas || 0;
-  const estadoClaseId = Number(normalizeRefId(recordClase.Estado_Clase_ID));
-  const esCancelada = [4, 5, 6, 7].includes(estadoClaseId);
+  const estadoClaseId = getEstadoId(recordClase.Estado_Clase_ID);
+  const esCancelada = ESTADOS_CANCELADOS.has(estadoClaseId);
   const tieneCupo = can > 0 && rec < can;
   const yaRecuperada = esCancelada && recordClase.Recuperacion && recordClase.Recuperacion.includes("a recuperar");
   
@@ -590,7 +913,7 @@ function validarRecuperacion() {
   // Restricción de mismo día
   if (!err && inputFecha.value) {
     const fechaSeleccionada = new Date(inputFecha.value);
-    const fechaOriginal = new Date(typeof recordClase.Clase === 'number' ? recordClase.Clase * 1000 : recordClase.Clase);
+    const fechaOriginal = gristTimestampToDate(recordClase.Clase);
     const esMismoDia = fechaSeleccionada.getUTCFullYear() === fechaOriginal.getUTCFullYear() &&
                        fechaSeleccionada.getUTCMonth() === fechaOriginal.getUTCMonth() &&
                        fechaSeleccionada.getUTCDate() === fechaOriginal.getUTCDate();
@@ -619,7 +942,7 @@ async function generarClaseRecuperada() {
     
     const raw = inputFecha.value.split('T');
     const ts = Math.floor(new Date(raw[0] + "T12:00:00").getTime() / 1000);
-    const fOrig = new Date(typeof recordClase.Clase === 'number' ? recordClase.Clase * 1000 : recordClase.Clase).toLocaleDateString('es-ES');
+    const fOrig = gristTimestampToDate(recordClase.Clase).toLocaleDateString('es-ES');
     const fNueva = new Date(ts * 1000).toLocaleDateString('es-ES');
 
     await grist.docApi.applyUserActions([
@@ -627,7 +950,7 @@ async function generarClaseRecuperada() {
           ID_Grupo: idGrupoRec, 
           Clase: ts, 
           Hora_Desde: raw[1], 
-          Tipo_de_Clase: "Recuperación", 
+          Tipo_de_Clase: TIPO_CLASE_RECUPERACION,
           Recuperacion: `Clase original ${fOrig}`,
           Estado_Clase_Original_ID: Number(normalizeRefId(recordClase.Estado_Clase_ID))
       }],
@@ -676,9 +999,9 @@ async function prepararModalInforme() {
   // Verificar restricciones semanales usando caché local en lugar de fetchTable
   const grupoIdActual = getGrupoId(recordClase);
   const semanaActual = recordClase.Clase_Semana;
-  const estadoActual = Number(normalizeRefId(recordClase.Estado_Clase_ID));
+  const estadoActual = getEstadoId(recordClase.Estado_Clase_ID);
   const cancelacionesMismaSemana = cancelacionesRestringidasPorGrupoSemana.get(getSemanaKey(grupoIdActual, semanaActual)) || 0;
-  const yaExisteCancelacionSemanal = cancelacionesMismaSemana > ([6, 7].includes(estadoActual) ? 1 : 0);
+  const yaExisteCancelacionSemanal = cancelacionesMismaSemana > (ESTADOS_RESTRINGIDOS.has(estadoActual) ? 1 : 0);
 
   // Si hay informe existente, cargar valores
   if (informeExistente && informeExistente.Estado) {
@@ -704,7 +1027,7 @@ async function prepararModalInforme() {
             mEl.value = parts[1] || '';
           }
         } else if (c.type === 'date' && v) {
-          el.value = new Date(v * 1000).toISOString().split('T')[0];
+          el.value = formatDateInputValue(v);
         } else { 
           el.value = v || ''; 
         }
@@ -721,9 +1044,9 @@ async function prepararModalInforme() {
   sel.disabled = estaBloqueado;
 
   // Aplicar restricciones en las opciones del select
-  const esRecuperada = recordClase?.Tipo_de_Clase === "Recuperación";
+  const esRecuperada = recordClase?.Tipo_de_Clase === TIPO_CLASE_RECUPERACION;
   const estadoOriginal = normalizeRefId(recordClase?.Estado_Clase_Original_ID) || normalizeRefId(recordClase?.Estado_Clase_ID); 
-  const aplicaRestriccionRecup = esRecuperada && [6, 7].includes(Number(estadoOriginal));
+  const aplicaRestriccionRecup = esRecuperada && ESTADOS_RESTRINGIDOS.has(Number(estadoOriginal));
 
   for (let i = 0; i < sel.options.length; i++) {
       const opt = sel.options[i];
@@ -733,7 +1056,7 @@ async function prepararModalInforme() {
       opt.text = opt.text.replace(' (No permitido)', '').replace(' (Límite semanal)', '').replace(' (No disponible en feriado)', '');
 
       const esFeriado = recordClase?.Tipo_Dia === 'Feriado';
-      const esEstadoRestringido = [6, 7].includes(val);
+      const esEstadoRestringido = ESTADOS_RESTRINGIDOS.has(val);
       const bloqueadoPorRecup = esEstadoRestringido && aplicaRestriccionRecup;
       const bloqueadoPorSemana = esEstadoRestringido && yaExisteCancelacionSemanal;
       const bloqueadoPorFeriado = esFeriado && val !== 5 && val !== 0;
@@ -799,11 +1122,11 @@ function validarBoton() {
   if (futureWarning) futureWarning.style.display = esProhibido ? 'block' : 'none';
 
   // Validación de seguridad para clases recuperadas
-  const esRec = recordClase?.Tipo_de_Clase === "Recuperación";
+  const esRec = recordClase?.Tipo_de_Clase === TIPO_CLASE_RECUPERACION;
   const estOrig = normalizeRefId(recordClase?.Estado_Clase_Original_ID) || normalizeRefId(recordClase?.Estado_Clase_ID);
   const estadoSeleccionado = Number(st);
 
-  if (esRec && [6, 7].includes(Number(estOrig)) && [6, 7].includes(estadoSeleccionado)) {
+  if (esRec && ESTADOS_RESTRINGIDOS.has(Number(estOrig)) && ESTADOS_RESTRINGIDOS.has(estadoSeleccionado)) {
       if (futureWarning) {
         futureWarning.style.display = 'block';
         futureWarning.innerHTML = '⚠️ <b>Restricción:</b> No se puede cancelar con este motivo una clase recuperada de una cancelación sin anticipación o por factores externos.';
@@ -820,8 +1143,6 @@ function validarBoton() {
   }
 
   let ok = true;
-  const prefixDrive = "https://drive.google.com/file";
-
   const config = configForm[st] || [];
   config.forEach(c => {
     const el = document.getElementById(c.id); 
@@ -839,7 +1160,7 @@ function validarBoton() {
       }
       // Validar formato de links Drive
       if ((c.id === 'Evidencia' || c.id === 'Evidencia_Coordinacion') && el.value?.trim() !== "") {
-        if (!el.value.startsWith(prefixDrive)) {
+        if (!el.value.startsWith(DRIVE_FILE_PREFIX)) {
           ok = false;
           el.style.border = "2px solid #ef4444";
         } else { 
@@ -864,7 +1185,8 @@ async function enviarInforme() {
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Guardando...';
     
     const st = document.getElementById('estadoSelect').value;
-    const data = { ID_Clase: recordClase.id, Estado: parseInt(st) };
+    const claseInforme = recordClase;
+    const data = { ID_Clase: claseInforme.id, Estado: parseInt(st) };
     
     const config = configForm[st] || [];
     config.forEach(c => {
@@ -883,21 +1205,36 @@ async function enviarInforme() {
       }
     });
     
-    if (informeExistente?.id) {
-      await grist.docApi.applyUserActions([["UpdateRecord", "Informe", informeExistente.id, data]]);
+    const informePrevio = informeExistente;
+    const esEdicionInforme = Boolean(informePrevio?.id);
+    if (esEdicionInforme) {
+      await grist.docApi.applyUserActions([["UpdateRecord", "Informe", informePrevio.id, data]]);
+      informeExistente = construirInformeCacheLocal(
+        data,
+        informePrevio.id,
+        informePrevio,
+        claseInforme
+      );
+      upsertInformeEnCache(informeExistente);
     } else {
-      await grist.docApi.applyUserActions([["AddRecord", "Informe", null, data]]);
+      const result = await grist.docApi.applyUserActions([["AddRecord", "Informe", null, data]]);
+      const nuevoId = getAddedRecordId(result);
+      if (nuevoId) {
+        informeExistente = construirInformeCacheLocal(data, nuevoId, null, claseInforme);
+        upsertInformeEnCache(informeExistente);
+      } else {
+        console.warn("El informe se guardó, pero Grist no devolvió el ID del nuevo registro.");
+      }
     }
-    
-    try {
-      setCacheInformes(await grist.docApi.fetchTable("Informe"));
-    } catch(e) {
-      console.warn("Error refrescando caché Informe:", e);
+
+    if (informeExistente?.id) {
+      clasesInformesConsultadas.add(String(claseInforme.id));
     }
-    
+    setInformeButtonState(informeExistente);
+
     cerrarModal('modalInforme');
     btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Enviar Informe';
-    if(recordClase) renderDetail(recordClase);
+    if (recordClase) renderDetail(recordClase);
   } catch (e) { 
     alert("Error: " + e.message); 
     const btn = document.getElementById('btnEnviar');
@@ -913,13 +1250,12 @@ async function enviarInforme() {
  */
 function getColorEstado(id) { 
   const estadoId = normalizeRefId(id);
-  return estadoId == 1 ? '#16B378' : ([2,4,5,6,7].includes(Number(estadoId)) ? '#ef4444' : '#94a3b8'); 
+  return estadoId == 1 ? '#16B378' : (ESTADOS_ROJOS.has(Number(estadoId)) ? '#ef4444' : '#94a3b8');
 }
 
 function formatDate(v) { 
   if (!v) return '---';
-  const d = new Date(typeof v === 'number' ? v * 1000 : v);
-  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).toLocaleDateString('es-ES', {weekday:'long', day:'numeric', month:'long'}); 
+  return gristTimestampToLocalDate(v).toLocaleDateString('es-ES', {weekday:'long', day:'numeric', month:'long'});
 }
 
 /**
@@ -929,9 +1265,12 @@ if (typeof grist !== 'undefined') {
   grist.onRecords((records) => {
     const agendaRecords = records || [];
     rebuildAgendaCaches(agendaRecords);
-    eventosClases = agendaRecords.filter(r => r.Tipo_Dia === "Hábil" || r.Tipo_Dia === "Feriado").map(r => {
-      const d = new Date(typeof r.Clase === 'number' ? r.Clase * 1000 : r.Clase);
-      let s = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+
+    recordsById.clear();
+    agendaRecords.forEach(r => recordsById.set(r.id, r));
+
+    eventosClases = agendaRecords.filter(r => TIPOS_DIA_AGENDA.has(r.Tipo_Dia)).map(r => {
+      const s = gristTimestampToLocalDate(r.Clase);
       
       if (r.Hora_Desde) { 
         const p = r.Hora_Desde.split(':'); 
@@ -944,15 +1283,15 @@ if (typeof grist !== 'undefined') {
         id: r.id, 
         title: r.ID_Grupo_display || r.ID_Grupo, 
         start: s, 
-        end: new Date(s.getTime() + (45 * 60000)),
+        end: new Date(s.getTime() + DURACION_CLASE_MS),
         extendedProps: { 
           dotColor: getColorEstado(r.Estado_Clase_ID), 
-          fullRecord: r, 
           isRecuperada: r.Recuperacion && r.Recuperacion.includes("a recuperar") 
         } 
       };
     });
-    refrescarCalendario();
+    agendaVersion++;
+    refrescarCalendario({ agendaChanged: true, feriadosChanged: false });
   });
 
   grist.onRecord(r => { if(r?.id) renderDetail(r); });

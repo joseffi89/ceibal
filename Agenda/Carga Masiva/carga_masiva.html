@@ -1,0 +1,162 @@
+<html>
+<head>
+  <meta charset="utf-8" />
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f4f6f8; padding: 16px; }
+    .card { background: #ffffff; border-radius: 10px; padding: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.08); max-width: 420px; margin: 0 auto; }
+    h3 { margin-top: 0; margin-bottom: 12px; font-size: 18px; color: #2c3e50; }
+    .grupo-info { background: #eef2f5; padding: 12px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; line-height: 1.4; }
+    .count-badge { font-weight: 700; color: #16B378; font-size: 16px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    button { width: 100%; padding: 12px; font-size: 15px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; background: #16B378; color: #ffffff; }
+    button.secondary { background: #334155; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; background: #94a3b8; }
+    .status-msg { margin-top: 10px; font-size: 13px; font-weight: 600; text-align: center; }
+    .error { color: #c0392b; }
+    .success { color: #16B378; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h3>Generación Masiva de Agendas</h3>
+  <div class="grupo-info" id="infoPanel">Presiona Calcular para buscar grupos pendientes.</div>
+  <div class="actions">
+    <button class="secondary" id="btnCalcular">Calcular</button>
+    <button id="btnProcesar" disabled>Crear Agendas Masivas</button>
+  </div>
+  <div id="statusMsg" class="status-msg"></div>
+</div>
+
+<script>
+const btnCalcular = document.getElementById("btnCalcular");
+const btn = document.getElementById("btnProcesar");
+const infoPanel = document.getElementById("infoPanel");
+const statusMsg = document.getElementById("statusMsg");
+
+let gruposPendientes = [];
+const diasSemanaMap = { "Domingo": 0, "Lunes": 1, "Martes": 2, "Miércoles": 3, "Jueves": 4, "Viernes": 5, "Sábado": 6 };
+
+// Función para convertir la fecha de Grist a objeto Date de JS correctamente
+function parseGristDate(val) {
+  if (!val) return null;
+  // Si es un número pequeño, es un timestamp en segundos (Grist)
+  if (typeof val === 'number' && val < 10000000000) {
+    return new Date(val * 1000);
+  }
+  return new Date(val);
+}
+
+async function cargarGrupos() {
+  btnCalcular.disabled = true;
+  btn.disabled = true;
+  statusMsg.className = "status-msg";
+  statusMsg.textContent = "Calculando...";
+  infoPanel.textContent = "Buscando grupos pendientes...";
+
+  try {
+    const tabla = await grist.docApi.fetchTable("Asignaciones");
+    const records = [];
+    const numRows = tabla.id.length;
+
+    for (let i = 0; i < numRows; i++) {
+      let obj = {};
+      Object.keys(tabla).forEach(key => obj[key] = tabla[key][i]);
+      records.push(obj);
+    }
+
+    gruposPendientes = records.filter(r => 
+      r.Estado_Grupo === "Asignado" && !r.Agenda_Creada
+    );
+
+    if (gruposPendientes.length > 0) {
+      infoPanel.innerHTML = `Hay <span class="count-badge">${gruposPendientes.length}</span> grupos pendientes.`;
+      btn.disabled = false;
+    } else {
+      infoPanel.innerHTML = "No hay grupos pendientes.";
+      btn.disabled = true;
+    }
+    statusMsg.textContent = "";
+  } catch (e) {
+    infoPanel.innerHTML = `<span class="error">Error al cargar tabla Asignaciones.</span>`;
+  } finally {
+    btnCalcular.disabled = false;
+  }
+}
+
+btn.addEventListener("click", async () => {
+  const ok = confirm(`¿Crear agendas para ${gruposPendientes.length} grupos?`);
+  if (!ok) return;
+
+  btnCalcular.disabled = true;
+  btn.disabled = true;
+  statusMsg.textContent = "Procesando...";
+  
+  const acciones = [];
+  let totalClases = 0;
+
+  try {
+    for (const grupo of gruposPendientes) {
+      const { id: grupoId, Dia, Fecha_Inicio, Fecha_Fin } = grupo;
+      
+      let inicio = parseGristDate(Fecha_Inicio);
+      let fin = parseGristDate(Fecha_Fin);
+      const targetDia = diasSemanaMap[Dia];
+
+      if (!inicio || !fin || targetDia === undefined) continue;
+
+      // Normalizar a UTC para evitar saltos por zona horaria
+      let fechaCorriente = new Date(inicio);
+      fechaCorriente.setUTCHours(12, 0, 0, 0); 
+      let fechaFinUTC = new Date(fin);
+      fechaFinUTC.setUTCHours(12, 0, 0, 0);
+
+      // Buscar el primer día de la semana que coincida
+      let intentos = 0;
+      while (fechaCorriente.getUTCDay() !== targetDia && intentos < 7) {
+        fechaCorriente.setUTCDate(fechaCorriente.getUTCDate() + 1);
+        intentos++;
+      }
+
+      // Generar registros
+      while (fechaCorriente <= fechaFinUTC) {
+        acciones.push(["AddRecord", "Agenda", null, {
+          ID_Grupo: grupoId,
+          Clase: fechaCorriente.getTime() / 1000,
+          Tipo_de_Clase: "Original"
+        }]);
+        fechaCorriente.setUTCDate(fechaCorriente.getUTCDate() + 7);
+        totalClases++;
+      }
+
+      acciones.push(["UpdateRecord", "Asignaciones", grupoId, { Agenda_Creada: true }]);
+    }
+
+    if (acciones.length > 0) {
+      // Dividir en bloques si hay muchas acciones (opcional, Grist lo maneja bien hasta cierto punto)
+      await grist.docApi.applyUserActions(acciones);
+      const totalGrupos = gruposPendientes.length;
+      statusMsg.className = "status-msg success";
+      statusMsg.textContent = `✅ Procesados ${gruposPendientes.length} grupos (${totalClases} clases).`;
+      await cargarGrupos();
+      statusMsg.className = "status-msg success";
+      statusMsg.textContent = `Procesados ${totalGrupos} grupos (${totalClases} clases).`;
+    } else {
+      statusMsg.textContent = "No se generaron clases. Revisa las fechas.";
+      btnCalcular.disabled = false;
+      btn.disabled = false;
+    }
+  } catch (e) {
+    statusMsg.className = "status-msg error";
+    statusMsg.textContent = "Error en el proceso.";
+    btnCalcular.disabled = false;
+    btn.disabled = false;
+  }
+});
+
+btnCalcular.addEventListener("click", cargarGrupos);
+grist.ready({ requiredAccess: 'full' });
+</script>
+</body>
+</html>
